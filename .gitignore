@@ -22,3 +22,5 @@ htmlcov/
 coverage.xml
 *.log
 .DS_Store
+_handoffs/
+_memory/
