@@ -1,4 +1,4 @@
-"""Tests for the FastMCP Server (Gate 2: 13 tools)."""
+"""Tests for the FastMCP Server (Gate 3: 18 tools)."""
 
 from __future__ import annotations
 
@@ -35,9 +35,10 @@ async def test_list_tools(client: Client):
         "eg_project", "eg_projects", "eg_log",
         "eg_save", "eg_memories", "eg_prune",
         "eg_idea", "eg_ideas",
+        "eg_learn", "eg_recall", "eg_crossref", "eg_context", "eg_related",
     }
     assert expected.issubset(names)
-    assert len(names) == 13
+    assert len(names) == 18
 
 
 async def test_tool_descriptions_short(client: Client):
@@ -619,6 +620,221 @@ async def test_eg_ideas_empty(client: Client):
     result = _data(await client.call_tool("eg_ideas", {}))
     assert result["count"] == 0
     assert result["ideas"] == []
+
+
+# ── Intelligence tool tests (5 tools) ────────────────────────
+
+
+async def test_eg_learn_high_confidence(client: Client):
+    result = _data(await client.call_tool("eg_learn", {
+        "content": "Use JWT for API authentication",
+        "type": "decision",
+        "confidence": "high",
+        "context": "Architecture review",
+        "tags": ["auth", "jwt"],
+    }))
+    assert result["_v"] == "1.0"
+    assert result["stored_as"] == "node"
+    assert result["node_id"] is not None
+    assert result["experience_id"] is not None
+
+
+async def test_eg_learn_medium_confidence(client: Client):
+    result = _data(await client.call_tool("eg_learn", {
+        "content": "Redis might be good for caching",
+        "type": "pattern",
+        "confidence": "medium",
+    }))
+    assert result["stored_as"] == "experience"
+    assert result["node_id"] is None
+    assert result["experience_id"] is not None
+
+
+async def test_eg_learn_low_confidence(client: Client):
+    result = _data(await client.call_tool("eg_learn", {
+        "content": "Maybe try GraphQL",
+        "type": "decision",
+        "confidence": "low",
+    }))
+    assert result["stored_as"] == "experience"
+    assert result["node_id"] is None
+
+
+async def test_eg_learn_invalid_type(client: Client):
+    result = _data(await client.call_tool("eg_learn", {
+        "content": "Something",
+        "type": "invalid_type",
+    }))
+    assert "error" in result
+
+
+async def test_eg_learn_empty_content(client: Client):
+    result = _data(await client.call_tool("eg_learn", {
+        "content": "",
+        "type": "decision",
+    }))
+    assert "error" in result
+
+
+async def test_eg_recall_basic(client: Client):
+    await client.call_tool("eg_learn", {
+        "content": "Token bucket algorithm for rate limiting",
+        "type": "solution",
+        "confidence": "high",
+    })
+
+    result = _data(await client.call_tool("eg_recall", {
+        "topic": "rate limiting",
+    }))
+    assert result["_v"] == "1.0"
+    assert result["count"] >= 1
+
+
+async def test_eg_recall_empty_topic(client: Client):
+    await client.call_tool("eg_learn", {
+        "content": "Testing is important",
+        "type": "pattern",
+        "confidence": "high",
+    })
+
+    result = _data(await client.call_tool("eg_recall", {}))
+    assert result["_v"] == "1.0"
+    assert result["count"] >= 1
+
+
+async def test_eg_recall_no_results(client: Client):
+    result = _data(await client.call_tool("eg_recall", {
+        "topic": "nonexistent_xyz_abc_123",
+    }))
+    assert result["count"] == 0
+
+
+async def test_eg_crossref_basic(client: Client):
+    await client.call_tool("eg_learn", {
+        "content": "Implemented rate limiting with Redis",
+        "type": "solution",
+        "confidence": "high",
+    })
+
+    result = _data(await client.call_tool("eg_crossref", {
+        "problem": "Need rate limiting for API endpoints",
+    }))
+    assert result["_v"] == "1.0"
+    assert result["count"] >= 1
+
+
+async def test_eg_crossref_empty_problem(client: Client):
+    result = _data(await client.call_tool("eg_crossref", {
+        "problem": "",
+    }))
+    assert "error" in result
+
+
+async def test_eg_context_basic(client: Client):
+    await client.call_tool("eg_learn", {
+        "content": "FastAPI uses Pydantic for validation",
+        "type": "pattern",
+        "confidence": "high",
+    })
+
+    result = _data(await client.call_tool("eg_context", {
+        "keywords": "FastAPI validation",
+    }))
+    assert result["_v"] == "1.0"
+    assert "nodes" in result
+    assert "experiences" in result
+
+
+async def test_eg_context_empty_keywords(client: Client):
+    result = _data(await client.call_tool("eg_context", {
+        "keywords": "",
+    }))
+    assert result["count"] == 0
+
+
+async def test_eg_context_detail_levels(client: Client):
+    await client.call_tool("eg_learn", {
+        "content": "SQLite FTS5 for search",
+        "type": "pattern",
+        "confidence": "high",
+    })
+
+    summary = _data(await client.call_tool("eg_context", {
+        "keywords": "SQLite search",
+        "detail": "summary",
+    }))
+    full = _data(await client.call_tool("eg_context", {
+        "keywords": "SQLite search",
+        "detail": "full",
+    }))
+    assert summary["_v"] == "1.0"
+    assert full["_v"] == "1.0"
+
+
+async def test_eg_related_basic(client: Client):
+    n1 = _data(await client.call_tool("eg_add", {
+        "name": "Authentication",
+        "type": "concept",
+    }))
+    n2 = _data(await client.call_tool("eg_add", {
+        "name": "JWT Tokens",
+        "type": "pattern",
+    }))
+    await client.call_tool("eg_connect", {
+        "source_id": n1["id"],
+        "target_id": n2["id"],
+        "edge_type": "uses",
+    })
+
+    result = _data(await client.call_tool("eg_related", {
+        "node_id": n1["id"],
+        "depth": 1,
+    }))
+    assert result["_v"] == "1.0"
+    assert result["count"] >= 1
+
+
+async def test_eg_related_empty_node_id(client: Client):
+    result = _data(await client.call_tool("eg_related", {
+        "node_id": "",
+    }))
+    assert "error" in result
+
+
+async def test_eg_related_nonexistent(client: Client):
+    result = _data(await client.call_tool("eg_related", {
+        "node_id": "nonexistent_id",
+    }))
+    assert result["count"] == 0
+
+
+async def test_learn_then_recall_workflow(client: Client):
+    """End-to-end: learn something, then recall it."""
+    await client.call_tool("eg_learn", {
+        "content": "Always use parameterized queries to prevent SQL injection",
+        "type": "pattern",
+        "confidence": "high",
+        "tags": ["security", "sql"],
+    })
+
+    result = _data(await client.call_tool("eg_recall", {
+        "topic": "SQL injection prevention",
+    }))
+    assert result["count"] >= 1
+
+
+async def test_learn_then_crossref_workflow(client: Client):
+    """End-to-end: learn a solution, then crossref a similar problem."""
+    await client.call_tool("eg_learn", {
+        "content": "Circuit breaker pattern for external API resilience",
+        "type": "solution",
+        "confidence": "high",
+    })
+
+    result = _data(await client.call_tool("eg_crossref", {
+        "problem": "External API keeps failing, need resilience pattern",
+    }))
+    assert result["count"] >= 1
 
 
 # ── Resource tests ───────────────────────────────────────────

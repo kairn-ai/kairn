@@ -1,4 +1,4 @@
-"""FastMCP server — Gate 2: 13 tools, 3 resources, 2 prompts."""
+"""FastMCP server — Gate 3: 18 tools, 3 resources, 2 prompts."""
 
 from __future__ import annotations
 
@@ -13,6 +13,7 @@ from pydantic import Field
 from engram.core.experience import ExperienceEngine
 from engram.core.graph import GraphEngine
 from engram.core.ideas import IdeaEngine
+from engram.core.intelligence import IntelligenceLayer
 from engram.core.memory import ProjectMemory
 from engram.core.router import ContextRouter
 from engram.events.bus import EventBus
@@ -26,7 +27,7 @@ def _json(data: dict[str, Any]) -> str:
 
 
 def create_server(db_path: str) -> FastMCP:
-    """Create a FastMCP server with 13 tools (5 graph + 3 project + 3 experience + 2 ideas)."""
+    """Create a FastMCP server with 18 tools (5 graph + 3 project + 3 experience + 2 ideas + 5 intelligence)."""
     mcp = FastMCP("engram", version="0.1.0")
 
     state: dict[str, Any] = {}
@@ -49,11 +50,25 @@ def create_server(db_path: str) -> FastMCP:
                 bus = EventBus()
                 state["store"] = store
                 state["bus"] = bus
-                state["graph"] = GraphEngine(store, bus)
-                state["router"] = ContextRouter(store, bus)
-                state["memory"] = ProjectMemory(store, bus)
-                state["experience"] = ExperienceEngine(store, bus)
-                state["ideas"] = IdeaEngine(store, bus)
+                graph = GraphEngine(store, bus)
+                router = ContextRouter(store, bus)
+                memory = ProjectMemory(store, bus)
+                experience = ExperienceEngine(store, bus)
+                ideas = IdeaEngine(store, bus)
+                state["graph"] = graph
+                state["router"] = router
+                state["memory"] = memory
+                state["experience"] = experience
+                state["ideas"] = ideas
+                state["intel"] = IntelligenceLayer(
+                    store=store,
+                    event_bus=bus,
+                    graph=graph,
+                    router=router,
+                    memory=memory,
+                    experience=experience,
+                    ideas=ideas,
+                )
         return state
 
     @mcp.tool()
@@ -678,6 +693,154 @@ def create_server(db_path: str) -> FastMCP:
             for i in ideas_list
         ]
         return _json({"_v": "1.0", "count": len(items), "ideas": items})
+
+    # ── Intelligence tools (5) ────────────────────────────────
+
+    @mcp.tool()
+    async def eg_learn(
+        content: Annotated[str, Field(description="What was learned/decided/discovered")],
+        type: Annotated[
+            str,
+            Field(description="decision|pattern|solution|workaround|gotcha"),
+        ],
+        context: Annotated[
+            str | None,
+            Field(description="Situation when this was learned"),
+        ] = None,
+        confidence: Annotated[
+            str,
+            Field(description="high=permanent, medium=likely, low=exploratory"),
+        ] = "high",
+        tags: Annotated[
+            list[str] | None,
+            Field(description="Tags for categorization"),
+        ] = None,
+    ) -> str:
+        """Store knowledge from conversation. Creates node (high) or experience (medium/low)."""
+        if not content or not content.strip():
+            return _json({"_v": "1.0", "error": "content is required"})
+
+        s = await _init()
+        try:
+            result = await s["intel"].learn(
+                content=content.strip(),
+                type=type,
+                context=context,
+                confidence=confidence,
+                tags=tags,
+            )
+        except ValueError as e:
+            return _json({"_v": "1.0", "error": str(e)})
+
+        return _json(result)
+
+    @mcp.tool()
+    async def eg_recall(
+        topic: Annotated[
+            str | None,
+            Field(description="Topic to recall knowledge about"),
+        ] = None,
+        limit: Annotated[
+            int,
+            Field(description="Max results", ge=1, le=50),
+        ] = 10,
+        min_relevance: Annotated[
+            float,
+            Field(
+                description="Minimum relevance 0.0-1.0",
+                ge=0.0,
+                le=1.0,
+            ),
+        ] = 0.0,
+    ) -> str:
+        """Surface relevant past knowledge for context."""
+        s = await _init()
+        results = await s["intel"].recall(
+            topic=topic,
+            limit=limit,
+            min_relevance=min_relevance,
+        )
+        return _json({
+            "_v": "1.0",
+            "count": len(results),
+            "results": results,
+        })
+
+    @mcp.tool()
+    async def eg_crossref(
+        problem: Annotated[str, Field(description="Problem description to find solutions for")],
+        limit: Annotated[
+            int,
+            Field(description="Max results", ge=1, le=50),
+        ] = 10,
+    ) -> str:
+        """Find similar solutions from other workspaces."""
+        if not problem or not problem.strip():
+            return _json({"_v": "1.0", "error": "problem is required"})
+
+        s = await _init()
+        try:
+            results = await s["intel"].crossref(
+                problem=problem.strip(),
+                limit=limit,
+            )
+        except ValueError as e:
+            return _json({"_v": "1.0", "error": str(e)})
+
+        return _json({
+            "_v": "1.0",
+            "count": len(results),
+            "results": results,
+        })
+
+    @mcp.tool()
+    async def eg_context(
+        keywords: Annotated[str, Field(description="Keywords to find relevant context for")],
+        detail: Annotated[
+            str,
+            Field(description="summary or full"),
+        ] = "summary",
+        limit: Annotated[
+            int,
+            Field(description="Max results", ge=1, le=50),
+        ] = 10,
+    ) -> str:
+        """Keywords to relevant subgraph with progressive disclosure."""
+        s = await _init()
+        result = await s["intel"].context(
+            keywords=keywords,
+            detail=detail,
+            limit=limit,
+        )
+        return _json(result)
+
+    @mcp.tool()
+    async def eg_related(
+        node_id: Annotated[str, Field(description="Starting node ID")],
+        depth: Annotated[
+            int,
+            Field(description="Traversal depth", ge=1, le=5),
+        ] = 1,
+        edge_type: Annotated[
+            str | None,
+            Field(description="Filter by edge type"),
+        ] = None,
+    ) -> str:
+        """Find nodes connected to a starting point."""
+        if not node_id or not node_id.strip():
+            return _json({"_v": "1.0", "error": "node_id is required"})
+
+        s = await _init()
+        results = await s["intel"].related(
+            node_id=node_id.strip(),
+            depth=depth,
+            edge_type=edge_type,
+        )
+        return _json({
+            "_v": "1.0",
+            "count": len(results),
+            "results": results,
+        })
 
     # ── Resources (3) ──────────────────────────────────────────
 

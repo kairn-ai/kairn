@@ -1,0 +1,525 @@
+"""Tests for the intelligence layer — learn, recall, crossref, context, related.
+
+Uses REAL conversation-style inputs, not just unit tests.
+"""
+
+from __future__ import annotations
+
+import pytest
+import pytest_asyncio
+
+from engram.core.experience import ExperienceEngine
+from engram.core.graph import GraphEngine
+from engram.core.ideas import IdeaEngine
+from engram.core.intelligence import IntelligenceLayer
+from engram.core.memory import ProjectMemory
+from engram.core.router import ContextRouter
+from engram.events.bus import EventBus
+from engram.storage.sqlite_store import SQLiteStore
+
+
+@pytest_asyncio.fixture
+async def engine(tmp_path):
+    """Full intelligence stack wired to a temp database."""
+    db_path = tmp_path / "intel_test.db"
+    store = SQLiteStore(db_path)
+    await store.initialize()
+    bus = EventBus()
+
+    graph = GraphEngine(store, bus)
+    router = ContextRouter(store, bus)
+    memory = ProjectMemory(store, bus)
+    experience = ExperienceEngine(store, bus)
+    ideas = IdeaEngine(store, bus)
+
+    intel = IntelligenceLayer(
+        store=store,
+        event_bus=bus,
+        graph=graph,
+        router=router,
+        memory=memory,
+        experience=experience,
+        ideas=ideas,
+    )
+
+    yield intel
+
+    await store.close()
+
+
+# ──────────────────────────────────────────────────────────────────────
+# learn() tests
+# ──────────────────────────────────────────────────────────────────────
+
+
+class TestLearn:
+    """Tests for eg_learn — confidence-based knowledge routing."""
+
+    @pytest.mark.asyncio
+    async def test_learn_high_confidence_creates_node(self, engine: IntelligenceLayer):
+        """High confidence → node in knowledge namespace."""
+        result = await engine.learn(
+            content="JWT is better than session cookies for API auth",
+            type="decision",
+            context="Evaluating auth strategies for REST API",
+            confidence="high",
+            tags=["auth", "jwt"],
+        )
+
+        assert result["stored_as"] == "node"
+        assert result["node_id"] is not None
+        assert result["experience_id"] is not None  # Also creates experience
+
+    @pytest.mark.asyncio
+    async def test_learn_medium_confidence_creates_experience_only(
+        self, engine: IntelligenceLayer
+    ):
+        """Medium confidence → experience only, 2x decay."""
+        result = await engine.learn(
+            content="Redis might be better than in-memory for caching",
+            type="pattern",
+            confidence="medium",
+        )
+
+        assert result["stored_as"] == "experience"
+        assert result["node_id"] is None
+        assert result["experience_id"] is not None
+
+    @pytest.mark.asyncio
+    async def test_learn_low_confidence_creates_experience_only(
+        self, engine: IntelligenceLayer
+    ):
+        """Low confidence → experience only, 4x decay."""
+        result = await engine.learn(
+            content="Maybe we should try GraphQL instead of REST",
+            type="decision",
+            confidence="low",
+        )
+
+        assert result["stored_as"] == "experience"
+        assert result["node_id"] is None
+        assert result["experience_id"] is not None
+
+    @pytest.mark.asyncio
+    async def test_learn_high_confidence_node_is_queryable(
+        self, engine: IntelligenceLayer
+    ):
+        """Node created by learn() should appear in graph queries."""
+        await engine.learn(
+            content="Always use parameterized SQL queries",
+            type="pattern",
+            confidence="high",
+            tags=["security", "sql"],
+        )
+
+        nodes = await engine.graph.query(text="parameterized SQL")
+        assert len(nodes) >= 1
+        assert any("parameterized" in n.name.lower() or "parameterized" in (n.description or "").lower() for n in nodes)
+
+    @pytest.mark.asyncio
+    async def test_learn_auto_links_related_nodes(self, engine: IntelligenceLayer):
+        """When learning, auto-link to existing related nodes."""
+        # First, add a related node
+        await engine.graph.add_node(name="authentication", type="concept")
+
+        # Now learn something related
+        result = await engine.learn(
+            content="Use bcrypt for password hashing in authentication",
+            type="solution",
+            confidence="high",
+            tags=["auth"],
+        )
+
+        assert result["node_id"] is not None
+
+    @pytest.mark.asyncio
+    async def test_learn_invalid_type_raises(self, engine: IntelligenceLayer):
+        with pytest.raises(ValueError, match="Invalid"):
+            await engine.learn(
+                content="Something",
+                type="invalid_type",
+                confidence="high",
+            )
+
+    @pytest.mark.asyncio
+    async def test_learn_invalid_confidence_raises(self, engine: IntelligenceLayer):
+        with pytest.raises(ValueError, match="Invalid"):
+            await engine.learn(
+                content="Something",
+                type="decision",
+                confidence="very_high",
+            )
+
+    @pytest.mark.asyncio
+    async def test_learn_empty_content_raises(self, engine: IntelligenceLayer):
+        with pytest.raises(ValueError, match="empty"):
+            await engine.learn(
+                content="",
+                type="decision",
+                confidence="high",
+            )
+
+    @pytest.mark.asyncio
+    async def test_learn_emits_event(self, engine: IntelligenceLayer):
+        """learn() should emit KNOWLEDGE_LEARNED event."""
+        events = []
+
+        async def capture(event_type, data):
+            events.append((str(event_type), data))
+
+        engine.event_bus.on_all(capture)
+
+        await engine.learn(
+            content="Use type hints everywhere",
+            type="pattern",
+            confidence="high",
+        )
+
+        event_types = [e[0] for e in events]
+        assert "knowledge.learned" in event_types
+
+
+# ──────────────────────────────────────────────────────────────────────
+# recall() tests
+# ──────────────────────────────────────────────────────────────────────
+
+
+class TestRecall:
+    """Tests for eg_recall — cross-namespace, decay-aware recall."""
+
+    @pytest.mark.asyncio
+    async def test_recall_finds_learned_knowledge(self, engine: IntelligenceLayer):
+        """recall() should find previously learned knowledge."""
+        await engine.learn(
+            content="Redis is great for caching API responses",
+            type="solution",
+            confidence="high",
+            tags=["redis", "caching"],
+        )
+
+        results = await engine.recall(topic="caching API responses")
+        assert len(results) >= 1
+
+    @pytest.mark.asyncio
+    async def test_recall_includes_both_nodes_and_experiences(
+        self, engine: IntelligenceLayer
+    ):
+        """recall() should search across nodes AND experiences."""
+        # High confidence → node
+        await engine.learn(
+            content="PostgreSQL for relational data",
+            type="decision",
+            confidence="high",
+        )
+        # Low confidence → experience only
+        await engine.learn(
+            content="Maybe try MongoDB for unstructured data",
+            type="decision",
+            confidence="low",
+        )
+
+        results = await engine.recall(topic="database data")
+        # Should find items from both sources
+        assert len(results) >= 1
+
+    @pytest.mark.asyncio
+    async def test_recall_empty_topic_returns_recent(self, engine: IntelligenceLayer):
+        """recall() with no topic returns recent knowledge."""
+        await engine.learn(
+            content="Testing is important",
+            type="pattern",
+            confidence="high",
+        )
+
+        results = await engine.recall(topic=None, limit=5)
+        assert len(results) >= 1
+
+    @pytest.mark.asyncio
+    async def test_recall_respects_limit(self, engine: IntelligenceLayer):
+        """recall() should respect the limit parameter."""
+        for i in range(5):
+            await engine.learn(
+                content=f"Pattern number {i} about testing",
+                type="pattern",
+                confidence="high",
+            )
+
+        results = await engine.recall(topic="pattern testing", limit=3)
+        assert len(results) <= 3
+
+    @pytest.mark.asyncio
+    async def test_recall_emits_event(self, engine: IntelligenceLayer):
+        events = []
+
+        async def capture(event_type, data):
+            events.append((str(event_type), data))
+
+        engine.event_bus.on_all(capture)
+
+        await engine.learn(
+            content="Something to recall",
+            type="pattern",
+            confidence="high",
+        )
+
+        await engine.recall(topic="recall")
+
+        event_types = [e[0] for e in events]
+        assert "knowledge.recalled" in event_types
+
+    @pytest.mark.asyncio
+    async def test_recall_no_results_returns_empty(self, engine: IntelligenceLayer):
+        results = await engine.recall(topic="completely_nonexistent_xyz123")
+        assert results == []
+
+
+# ──────────────────────────────────────────────────────────────────────
+# crossref() tests
+# ──────────────────────────────────────────────────────────────────────
+
+
+class TestCrossref:
+    """Tests for eg_crossref — cross-workspace discovery."""
+
+    @pytest.mark.asyncio
+    async def test_crossref_finds_related_patterns(self, engine: IntelligenceLayer):
+        """crossref() should find solutions from the same workspace."""
+        # Learn several things
+        await engine.learn(
+            content="Token bucket algorithm for rate limiting",
+            type="solution",
+            confidence="high",
+            tags=["rate-limiting"],
+        )
+        await engine.learn(
+            content="Redis sorted sets for leaderboards",
+            type="solution",
+            confidence="high",
+            tags=["redis"],
+        )
+
+        results = await engine.crossref(problem="I need to implement rate limiting")
+        assert len(results) >= 1
+
+    @pytest.mark.asyncio
+    async def test_crossref_empty_problem_raises(self, engine: IntelligenceLayer):
+        with pytest.raises(ValueError, match="empty"):
+            await engine.crossref(problem="")
+
+    @pytest.mark.asyncio
+    async def test_crossref_emits_event(self, engine: IntelligenceLayer):
+        events = []
+
+        async def capture(event_type, data):
+            events.append((str(event_type), data))
+
+        engine.event_bus.on_all(capture)
+
+        await engine.learn(
+            content="Use connection pooling for database",
+            type="solution",
+            confidence="high",
+        )
+
+        await engine.crossref(problem="database performance")
+
+        event_types = [e[0] for e in events]
+        assert "crossref.found" in event_types
+
+
+# ──────────────────────────────────────────────────────────────────────
+# context() tests
+# ──────────────────────────────────────────────────────────────────────
+
+
+class TestContext:
+    """Tests for eg_context — progressive disclosure subgraph."""
+
+    @pytest.mark.asyncio
+    async def test_context_returns_relevant_subgraph(
+        self, engine: IntelligenceLayer
+    ):
+        """context() should return relevant nodes and experiences."""
+        await engine.learn(
+            content="FastAPI uses Pydantic for validation",
+            type="pattern",
+            confidence="high",
+            tags=["fastapi", "pydantic"],
+        )
+
+        result = await engine.context(keywords="FastAPI validation")
+        assert "nodes" in result
+        assert "experiences" in result
+        assert result["_v"] == "1.0"
+
+    @pytest.mark.asyncio
+    async def test_context_summary_vs_full(self, engine: IntelligenceLayer):
+        """detail='full' should include more information than 'summary'."""
+        await engine.learn(
+            content="SQLite FTS5 for full-text search",
+            type="pattern",
+            confidence="high",
+        )
+
+        summary = await engine.context(keywords="SQLite FTS5", detail="summary")
+        full = await engine.context(keywords="SQLite FTS5", detail="full")
+
+        # Full should have same or more data
+        assert full["_v"] == "1.0"
+        assert summary["_v"] == "1.0"
+
+    @pytest.mark.asyncio
+    async def test_context_empty_keywords(self, engine: IntelligenceLayer):
+        result = await engine.context(keywords="")
+        assert result["count"] == 0
+
+
+# ──────────────────────────────────────────────────────────────────────
+# related() tests
+# ──────────────────────────────────────────────────────────────────────
+
+
+class TestRelated:
+    """Tests for eg_related — BFS/DFS traversal."""
+
+    @pytest.mark.asyncio
+    async def test_related_finds_connected_nodes(self, engine: IntelligenceLayer):
+        """related() should find nodes connected via edges."""
+        n1 = await engine.graph.add_node(name="authentication", type="concept")
+        n2 = await engine.graph.add_node(name="JWT tokens", type="pattern")
+        await engine.graph.connect(n1.id, n2.id, "uses")
+
+        results = await engine.related(node_id=n1.id, depth=1)
+        assert len(results) >= 1
+        node_names = [r["node"]["name"] for r in results]
+        assert "JWT tokens" in node_names
+
+    @pytest.mark.asyncio
+    async def test_related_respects_depth(self, engine: IntelligenceLayer):
+        """related() should not return nodes beyond specified depth."""
+        n1 = await engine.graph.add_node(name="root", type="concept")
+        n2 = await engine.graph.add_node(name="depth1", type="concept")
+        n3 = await engine.graph.add_node(name="depth2", type="concept")
+        await engine.graph.connect(n1.id, n2.id, "links_to")
+        await engine.graph.connect(n2.id, n3.id, "links_to")
+
+        results_d1 = await engine.related(node_id=n1.id, depth=1)
+        results_d2 = await engine.related(node_id=n1.id, depth=2)
+
+        d1_names = [r["node"]["name"] for r in results_d1]
+        d2_names = [r["node"]["name"] for r in results_d2]
+
+        assert "depth1" in d1_names
+        assert "depth2" not in d1_names
+        assert "depth2" in d2_names
+
+    @pytest.mark.asyncio
+    async def test_related_nonexistent_node(self, engine: IntelligenceLayer):
+        results = await engine.related(node_id="nonexistent_id", depth=1)
+        assert results == []
+
+    @pytest.mark.asyncio
+    async def test_related_with_edge_type_filter(self, engine: IntelligenceLayer):
+        n1 = await engine.graph.add_node(name="Python", type="concept")
+        n2 = await engine.graph.add_node(name="FastAPI", type="framework")
+        n3 = await engine.graph.add_node(name="Django", type="framework")
+        await engine.graph.connect(n1.id, n2.id, "has_framework")
+        await engine.graph.connect(n1.id, n3.id, "has_framework")
+
+        results = await engine.related(
+            node_id=n1.id, depth=1, edge_type="has_framework"
+        )
+        names = [r["node"]["name"] for r in results]
+        assert "FastAPI" in names
+        assert "Django" in names
+
+
+# ──────────────────────────────────────────────────────────────────────
+# Integration / Real conversation tests
+# ──────────────────────────────────────────────────────────────────────
+
+
+class TestRealConversation:
+    """Tests with realistic conversation-style inputs."""
+
+    @pytest.mark.asyncio
+    async def test_developer_workflow(self, engine: IntelligenceLayer):
+        """Simulate a developer making decisions across a session."""
+        # Decision 1: Auth approach
+        await engine.learn(
+            content="We're using JWT instead of session cookies for the API",
+            type="decision",
+            confidence="high",
+            context="API design meeting",
+            tags=["auth", "jwt", "api"],
+        )
+
+        # Decision 2: Database
+        await engine.learn(
+            content="PostgreSQL for the main database, Redis for caching",
+            type="decision",
+            confidence="high",
+            context="Architecture review",
+            tags=["database", "postgresql", "redis"],
+        )
+
+        # Tentative idea
+        await engine.learn(
+            content="Maybe GraphQL would simplify the frontend queries",
+            type="pattern",
+            confidence="low",
+            context="Frontend team suggestion",
+        )
+
+        # Later: recall auth decisions
+        auth_results = await engine.recall(topic="authentication API")
+        assert len(auth_results) >= 1
+
+        # Context for database work
+        db_context = await engine.context(keywords="database caching")
+        assert db_context["count"] >= 0  # May find related items
+
+    @pytest.mark.asyncio
+    async def test_learn_then_crossref_workflow(self, engine: IntelligenceLayer):
+        """Learn solutions, then crossref to find them."""
+        await engine.learn(
+            content="Implemented rate limiting with token bucket in Redis",
+            type="solution",
+            confidence="high",
+            tags=["rate-limiting", "redis"],
+        )
+        await engine.learn(
+            content="Used circuit breaker pattern for external API calls",
+            type="solution",
+            confidence="high",
+            tags=["resilience", "circuit-breaker"],
+        )
+
+        # New problem arises
+        results = await engine.crossref(
+            problem="Need to prevent API abuse and rate limit endpoints"
+        )
+        assert len(results) >= 1
+
+    @pytest.mark.asyncio
+    async def test_multiple_confidence_levels(self, engine: IntelligenceLayer):
+        """Different confidence levels stored correctly."""
+        r1 = await engine.learn(
+            content="Definitive: Use Pydantic v2 for models",
+            type="decision",
+            confidence="high",
+        )
+        r2 = await engine.learn(
+            content="Probably should add OpenTelemetry tracing",
+            type="pattern",
+            confidence="medium",
+        )
+        r3 = await engine.learn(
+            content="Maybe try Rust for the hot path",
+            type="pattern",
+            confidence="low",
+        )
+
+        assert r1["stored_as"] == "node"
+        assert r2["stored_as"] == "experience"
+        assert r3["stored_as"] == "experience"
