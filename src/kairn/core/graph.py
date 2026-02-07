@@ -8,11 +8,11 @@ import sqlite3
 from datetime import UTC, datetime
 from typing import Any
 
-from engram.events.bus import EventBus
-from engram.events.types import EventType
-from engram.models.edge import Edge
-from engram.models.node import Node
-from engram.storage.base import StorageBackend
+from kairn.events.bus import EventBus
+from kairn.events.types import EventType
+from kairn.models.edge import Edge
+from kairn.models.node import Node
+from kairn.storage.base import StorageBackend
 
 logger = logging.getLogger(__name__)
 

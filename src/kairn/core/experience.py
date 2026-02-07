@@ -1,4 +1,4 @@
-"""Experience/Decay Memory engine for Engram.
+"""Experience/Decay Memory engine for Kairn.
 
 Manages experiences with exponential decay based on type-specific half-lives
 and confidence multipliers. Automatically promotes frequently accessed experiences
@@ -9,11 +9,11 @@ import logging
 import math
 from datetime import UTC, datetime
 
-from engram.events.bus import EventBus
-from engram.events.types import EventType
-from engram.models.experience import VALID_CONFIDENCES, VALID_TYPES, Experience
-from engram.models.node import Node
-from engram.storage.base import StorageBackend
+from kairn.events.bus import EventBus
+from kairn.events.types import EventType
+from kairn.models.experience import VALID_CONFIDENCES, VALID_TYPES, Experience
+from kairn.models.node import Node
+from kairn.storage.base import StorageBackend
 
 logger = logging.getLogger(__name__)
 

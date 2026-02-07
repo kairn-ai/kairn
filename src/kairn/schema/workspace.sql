@@ -1,4 +1,4 @@
--- Engram Per-Workspace Schema (ws_{id}.db)
+-- Kairn Per-Workspace Schema (ws_{id}.db)
 -- Version: 1.0
 
 PRAGMA journal_mode=WAL;

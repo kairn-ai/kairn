@@ -3,10 +3,10 @@
 import logging
 from typing import ClassVar
 
-from engram.events.bus import EventBus
-from engram.events.types import EventType
-from engram.models.project import VALID_PHASES, ProgressEntry, Project
-from engram.storage.base import StorageBackend
+from kairn.events.bus import EventBus
+from kairn.events.types import EventType
+from kairn.models.project import VALID_PHASES, ProgressEntry, Project
+from kairn.storage.base import StorageBackend
 
 logger = logging.getLogger(__name__)
 

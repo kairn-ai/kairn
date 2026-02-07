@@ -10,15 +10,15 @@ import re
 from datetime import UTC, datetime
 from typing import Any
 
-from engram.core.experience import ExperienceEngine
-from engram.core.graph import GraphEngine
-from engram.core.ideas import IdeaEngine
-from engram.core.memory import ProjectMemory
-from engram.core.router import ContextRouter
-from engram.events.bus import EventBus
-from engram.events.types import EventType
-from engram.models.experience import VALID_CONFIDENCES, VALID_TYPES
-from engram.storage.base import StorageBackend
+from kairn.core.experience import ExperienceEngine
+from kairn.core.graph import GraphEngine
+from kairn.core.ideas import IdeaEngine
+from kairn.core.memory import ProjectMemory
+from kairn.core.router import ContextRouter
+from kairn.events.bus import EventBus
+from kairn.events.types import EventType
+from kairn.models.experience import VALID_CONFIDENCES, VALID_TYPES
+from kairn.storage.base import StorageBackend
 
 logger = logging.getLogger(__name__)
 

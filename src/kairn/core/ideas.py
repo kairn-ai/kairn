@@ -7,12 +7,12 @@ scoring, and graph linking.
 import logging
 from datetime import UTC, datetime
 
-from engram.events.bus import EventBus
-from engram.events.types import EventType
-from engram.models.edge import Edge
-from engram.models.idea import VALID_STATUSES, Idea
-from engram.models.node import Node
-from engram.storage.base import StorageBackend
+from kairn.events.bus import EventBus
+from kairn.events.types import EventType
+from kairn.models.edge import Edge
+from kairn.models.idea import VALID_STATUSES, Idea
+from kairn.models.node import Node
+from kairn.storage.base import StorageBackend
 
 logger = logging.getLogger(__name__)
 

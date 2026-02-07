@@ -7,7 +7,7 @@ from pathlib import Path
 
 import pytest
 
-from engram.storage.sqlite_store import SQLiteStore
+from kairn.storage.sqlite_store import SQLiteStore
 
 
 def _now() -> str:

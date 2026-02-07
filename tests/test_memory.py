@@ -2,10 +2,10 @@
 
 import pytest
 
-from engram.core.memory import ProjectMemory
-from engram.events.bus import EventBus
-from engram.events.types import EventType
-from engram.models.project import VALID_PHASES
+from kairn.core.memory import ProjectMemory
+from kairn.events.bus import EventBus
+from kairn.events.types import EventType
+from kairn.models.project import VALID_PHASES
 
 
 @pytest.fixture

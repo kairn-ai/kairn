@@ -1,4 +1,4 @@
-"""JWT token creation and validation for Engram authentication."""
+"""JWT token creation and validation for Kairn authentication."""
 
 from __future__ import annotations
 
@@ -22,7 +22,7 @@ class TokenInvalidError(Exception):
 
 def create_token(user_id: str, org_id: str, exp_minutes: int = 60) -> str:
     """Create a JWT token for a user."""
-    secret = os.environ.get("ENGRAM_JWT_SECRET", "test-secret-key-do-not-use")
+    secret = os.environ.get("KAIRN_JWT_SECRET", "test-secret-key-do-not-use")
     now = int(time.time())
     payload = {
         "sub": user_id,

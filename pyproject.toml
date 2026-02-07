@@ -3,13 +3,13 @@ requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [project]
-name = "engram-ai"
+name = "kairn-ai"
 version = "0.1.0"
-description = "Your AI's engram — memory that persists, decays, and connects"
+description = "Context-aware knowledge engine for AI — memory, graph, intelligent routing"
 readme = "README.md"
 license = "MIT"
 requires-python = ">=3.11"
-authors = [{ name = "Engram Contributors" }]
+authors = [{ name = "Kairn Contributors" }]
 keywords = ["mcp", "memory", "knowledge-graph", "ai", "claude"]
 classifiers = [
     "Development Status :: 3 - Alpha",
@@ -41,15 +41,15 @@ dev = [
 ]
 
 [project.scripts]
-engram = "engram.cli:main"
+kairn = "kairn.cli:main"
 
 [project.urls]
-Homepage = "https://github.com/engram-ai/engram"
-Documentation = "https://engram.dev"
-Repository = "https://github.com/engram-ai/engram"
+Homepage = "https://github.com/kairn-ai/kairn"
+Documentation = "https://kairn.dev"
+Repository = "https://github.com/kairn-ai/kairn"
 
 [tool.hatch.build.targets.wheel]
-packages = ["src/engram"]
+packages = ["src/kairn"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

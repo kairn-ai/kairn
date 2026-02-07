@@ -15,35 +15,35 @@ from rich.console import Console
 from rich.panel import Panel
 from rich.table import Table
 
-from engram.config import Config
-from engram.storage.metadata_store import MetadataStore
-from engram.storage.sqlite_store import SQLiteStore
+from kairn.config import Config
+from kairn.storage.metadata_store import MetadataStore
+from kairn.storage.sqlite_store import SQLiteStore
 
 
 @click.group()
-@click.version_option(package_name="engram-ai")
+@click.version_option(package_name="kairn-ai")
 def main() -> None:
-    """Engram — your AI's persistent memory."""
+    """Kairn — your AI's persistent memory."""
 
 
 @main.command()
-@click.argument("path", type=click.Path(), default="~/engram")
+@click.argument("path", type=click.Path(), default="~/.kairn")
 def init(path: str) -> None:
-    """Initialize a new engram workspace."""
+    """Initialize a new kairn workspace."""
     workspace = Path(path).expanduser().resolve()
 
     async def _init() -> None:
         config = Config(workspace_path=workspace)
-        store = SQLiteStore(workspace / "engram.db")
+        store = SQLiteStore(workspace / "kairn.db")
         await store.initialize()
         await store.close()
         config.save()
 
     asyncio.run(_init())
     click.echo(f"Initialized workspace at {workspace}")
-    click.echo(f"Database: {workspace / 'engram.db'}")
+    click.echo(f"Database: {workspace / 'kairn.db'}")
     click.echo("Add to Claude Desktop config:")
-    click.echo(f'  "engram": {{"command": "engram", "args": ["serve", "{workspace}"]}}')
+    click.echo(f'  "kairn": {{"command": "kairn", "args": ["serve", "{workspace}"]}}')
 
 
 @main.command()
@@ -52,13 +52,13 @@ def init(path: str) -> None:
 def serve(path: str, transport: str) -> None:
     """Start the MCP server."""
     workspace = Path(path).expanduser().resolve()
-    db_path = workspace / "engram.db"
+    db_path = workspace / "kairn.db"
 
     if not db_path.exists():
-        click.echo(f"Error: No database at {db_path}. Run 'engram init' first.", err=True)
+        click.echo(f"Error: No database at {db_path}. Run 'kairn init' first.", err=True)
         sys.exit(1)
 
-    from engram.server import create_server
+    from kairn.server import create_server
 
     server = create_server(str(db_path))
     server.run(transport=transport)  # type: ignore[arg-type]
@@ -69,7 +69,7 @@ def serve(path: str, transport: str) -> None:
 def status(path: str) -> None:
     """Show workspace status."""
     workspace = Path(path).expanduser().resolve()
-    db_path = workspace / "engram.db"
+    db_path = workspace / "kairn.db"
 
     if not db_path.exists():
         click.echo(f"Error: No database at {db_path}", err=True)
@@ -161,10 +161,10 @@ def create(name: str, org: str, description: str | None, workspace_type: str) ->
 def join(workspace_id: str, token: str) -> None:
     """Join an existing workspace."""
     config = Config.load()
-    secret = os.environ.get("ENGRAM_JWT_SECRET", "test-secret-key-do-not-use")
+    secret = os.environ.get("KAIRN_JWT_SECRET", "test-secret-key-do-not-use")
 
     async def _join() -> None:
-        from engram.auth.jwt import TokenExpiredError, TokenInvalidError, verify_token
+        from kairn.auth.jwt import TokenExpiredError, TokenInvalidError, verify_token
 
         store = MetadataStore(config.metadata_db_path)
         await store.initialize()
@@ -261,22 +261,22 @@ def leave(workspace_id: str) -> None:
 def demo(path: str) -> None:
     """Interactive demo tutorial."""
     workspace = Path(path).expanduser().resolve()
-    db_path = workspace / "engram.db"
+    db_path = workspace / "kairn.db"
 
     if not db_path.exists():
-        click.echo(f"Error: No database at {db_path}. Run 'engram init' first.", err=True)
+        click.echo(f"Error: No database at {db_path}. Run 'kairn init' first.", err=True)
         sys.exit(1)
 
     console = Console()
 
     async def _demo() -> None:
-        from engram.core.experience import ExperienceEngine
-        from engram.core.graph import GraphEngine
-        from engram.core.ideas import IdeaEngine
-        from engram.core.intelligence import IntelligenceLayer
-        from engram.core.memory import ProjectMemory
-        from engram.core.router import ContextRouter
-        from engram.events.bus import EventBus
+        from kairn.core.experience import ExperienceEngine
+        from kairn.core.graph import GraphEngine
+        from kairn.core.ideas import IdeaEngine
+        from kairn.core.intelligence import IntelligenceLayer
+        from kairn.core.memory import ProjectMemory
+        from kairn.core.router import ContextRouter
+        from kairn.events.bus import EventBus
 
         store = SQLiteStore(db_path)
         await store.initialize()
@@ -298,12 +298,12 @@ def demo(path: str) -> None:
 
         console.print(
             Panel(
-                "[bold cyan]Engram Demo Tutorial[/bold cyan]\n\n"
+                "[bold cyan]Kairn Demo Tutorial[/bold cyan]\n\n"
                 "This demo walks through core features:\n"
                 "1. Create a node    4. Learn knowledge\n"
                 "2. Query nodes      5. Recall knowledge\n"
                 "3. Save experience  6. Get context",
-                title="Welcome to Engram",
+                title="Welcome to Kairn",
             )
         )
 
@@ -353,7 +353,7 @@ def demo(path: str) -> None:
         console.print(
             Panel(
                 "[bold green]Demo Complete![/bold green]\n\n"
-                "You've seen Engram's core capabilities:\n"
+                "You've seen Kairn's core capabilities:\n"
                 "  Graph storage and search\n"
                 "  Experience tracking with decay\n"
                 "  Intelligence: learn, recall, context\n\n"
@@ -371,17 +371,17 @@ def demo(path: str) -> None:
 def benchmark(path: str, nodes: int) -> None:
     """Run performance benchmarks."""
     workspace = Path(path).expanduser().resolve()
-    db_path = workspace / "engram.db"
+    db_path = workspace / "kairn.db"
 
     if not db_path.exists():
-        click.echo(f"Error: No database at {db_path}. Run 'engram init' first.", err=True)
+        click.echo(f"Error: No database at {db_path}. Run 'kairn init' first.", err=True)
         sys.exit(1)
 
     console = Console()
 
     async def _benchmark() -> None:
-        from engram.core.graph import GraphEngine
-        from engram.events.bus import EventBus
+        from kairn.core.graph import GraphEngine
+        from kairn.events.bus import EventBus
 
         store = SQLiteStore(db_path)
         await store.initialize()
@@ -392,7 +392,7 @@ def benchmark(path: str, nodes: int) -> None:
             Panel(
                 f"[bold cyan]Performance Benchmark[/bold cyan]\n\n"
                 f"Creating {nodes} nodes and measuring performance...",
-                title="Engram Benchmark",
+                title="Kairn Benchmark",
             )
         )
 
@@ -449,10 +449,10 @@ def benchmark(path: str, nodes: int) -> None:
 def token_audit(path: str) -> None:
     """Count tokens in tool definitions."""
     workspace = Path(path).expanduser().resolve()
-    db_path = workspace / "engram.db"
+    db_path = workspace / "kairn.db"
 
     if not db_path.exists():
-        click.echo(f"Error: No database at {db_path}. Run 'engram init' first.", err=True)
+        click.echo(f"Error: No database at {db_path}. Run 'kairn init' first.", err=True)
         sys.exit(1)
 
     console = Console()
@@ -460,7 +460,7 @@ def token_audit(path: str) -> None:
     async def _token_audit() -> None:
         from fastmcp import Client
 
-        from engram.server import create_server
+        from kairn.server import create_server
 
         server = create_server(str(db_path))
         async with Client(server) as client:

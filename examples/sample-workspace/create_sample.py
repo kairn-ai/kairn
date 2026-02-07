@@ -1,6 +1,6 @@
-"""Create a pre-populated sample workspace for engram.
+"""Create a pre-populated sample workspace for kairn.
 
-Generates engram.db with realistic developer knowledge covering:
+Generates kairn.db with realistic developer knowledge covering:
 - 20 nodes across knowledge/idea/project namespaces
 - 15 edges connecting related concepts
 - 10 experiences with varied confidence levels
@@ -16,12 +16,12 @@ from pathlib import Path
 from rich.console import Console
 from rich.progress import Progress, SpinnerColumn, TextColumn
 
-from engram.core.experience import ExperienceEngine
-from engram.core.graph import GraphEngine
-from engram.core.ideas import IdeaEngine
-from engram.core.memory import ProjectMemory
-from engram.events.bus import EventBus
-from engram.storage.sqlite_store import SQLiteStore
+from kairn.core.experience import ExperienceEngine
+from kairn.core.graph import GraphEngine
+from kairn.core.ideas import IdeaEngine
+from kairn.core.memory import ProjectMemory
+from kairn.events.bus import EventBus
+from kairn.storage.sqlite_store import SQLiteStore
 
 console = Console()
 
@@ -29,7 +29,7 @@ console = Console()
 async def create_sample_workspace() -> None:
     """Create sample workspace with realistic developer knowledge."""
     workspace_dir = Path(__file__).parent
-    db_path = workspace_dir / "engram.db"
+    db_path = workspace_dir / "kairn.db"
 
     # Remove existing database
     if db_path.exists():
@@ -38,7 +38,7 @@ async def create_sample_workspace() -> None:
 
     console.print(f"\n[bold cyan]Creating sample workspace:[/bold cyan] {db_path}\n")
 
-    # Initialize engram
+    # Initialize kairn
     store = SQLiteStore(db_path)
     await store.initialize()
     bus = EventBus()
@@ -498,6 +498,7 @@ async def create_sample_workspace() -> None:
             next_step="Schedule production migration",
         )
 
+        await memory.update_project(project3.id, phase="active", active=True)
         await memory.update_project(project3.id, phase="paused", active=False)
 
         progress.update(task, description="[green]✓[/green] Created 3 projects")
@@ -575,15 +576,15 @@ async def create_sample_workspace() -> None:
 
     console.print("\n[bold green]✓ Sample workspace created successfully![/bold green]\n")
     console.print(f"[cyan]Location:[/cyan] {db_path}")
-    console.print(f"[cyan]Nodes:[/cyan] {stats['total_nodes']}")
-    console.print(f"[cyan]Edges:[/cyan] {stats['total_edges']}")
+    console.print(f"[cyan]Nodes:[/cyan] {stats['nodes']}")
+    console.print(f"[cyan]Edges:[/cyan] {stats['edges']}")
     console.print("[cyan]Projects:[/cyan] 3 (1 active, 1 paused, 1 planning)")
     console.print("[cyan]Ideas:[/cyan] 5 (various statuses)")
     console.print("[cyan]Experiences:[/cyan] 10 (high confidence solutions and patterns)\n")
 
-    console.print("[dim]To explore this workspace, start the engram server:[/dim]")
+    console.print("[dim]To explore this workspace, start the kairn server:[/dim]")
     console.print(f"[dim]  cd {workspace_dir}[/dim]")
-    console.print("[dim]  engram serve[/dim]\n")
+    console.print("[dim]  kairn serve[/dim]\n")
 
 
 if __name__ == "__main__":

@@ -2,11 +2,11 @@
 
 import pytest
 
-from engram.core.ideas import IdeaEngine
-from engram.events.bus import EventBus
-from engram.events.types import EventType
-from engram.models.idea import Idea
-from engram.models.node import Node
+from kairn.core.ideas import IdeaEngine
+from kairn.events.bus import EventBus
+from kairn.events.types import EventType
+from kairn.models.idea import Idea
+from kairn.models.node import Node
 
 
 @pytest.fixture

@@ -8,7 +8,7 @@ from pathlib import Path
 import aiosqlite
 import pytest
 
-from engram.storage.metadata_store import MetadataStore
+from kairn.storage.metadata_store import MetadataStore
 
 
 @pytest.fixture

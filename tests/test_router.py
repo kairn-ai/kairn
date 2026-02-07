@@ -4,9 +4,9 @@ from __future__ import annotations
 
 import pytest
 
-from engram.core.router import ContextRouter
-from engram.events.bus import EventBus
-from engram.storage.sqlite_store import SQLiteStore
+from kairn.core.router import ContextRouter
+from kairn.events.bus import EventBus
+from kairn.storage.sqlite_store import SQLiteStore
 
 
 @pytest.fixture

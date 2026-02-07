@@ -1,4 +1,4 @@
-"""RBAC permission checks for Engram workspaces."""
+"""RBAC permission checks for Kairn workspaces."""
 
 from __future__ import annotations
 

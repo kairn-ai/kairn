@@ -5,15 +5,15 @@ from datetime import datetime, timedelta, timezone
 
 import pytest
 
-from engram.core.experience import (
+from kairn.core.experience import (
     CONFIDENCE_MULTIPLIERS,
     HALF_LIVES,
     ExperienceEngine,
     decay_rate_from_half_life,
 )
-from engram.events.bus import EventBus
-from engram.events.types import EventType
-from engram.models.experience import VALID_CONFIDENCES, VALID_TYPES
+from kairn.events.bus import EventBus
+from kairn.events.types import EventType
+from kairn.models.experience import VALID_CONFIDENCES, VALID_TYPES
 
 
 @pytest.fixture

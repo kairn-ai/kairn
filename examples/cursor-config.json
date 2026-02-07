@@ -1,10 +1,10 @@
 {
   "mcpServers": {
-    "engram": {
-      "command": "engram",
+    "kairn": {
+      "command": "kairn",
       "args": ["serve", "~/my-brain"],
       "env": {
-        "ENGRAM_LOG_LEVEL": "WARNING"
+        "KAIRN_LOG_LEVEL": "WARNING"
       }
     }
   }

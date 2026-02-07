@@ -4,10 +4,10 @@ from __future__ import annotations
 
 import pytest
 
-from engram.core.graph import GraphEngine
-from engram.events.bus import EventBus
-from engram.events.types import EventType
-from engram.storage.sqlite_store import SQLiteStore
+from kairn.core.graph import GraphEngine
+from kairn.events.bus import EventBus
+from kairn.events.types import EventType
+from kairn.storage.sqlite_store import SQLiteStore
 
 
 @pytest.fixture

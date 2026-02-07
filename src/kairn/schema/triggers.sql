@@ -1,4 +1,4 @@
--- Engram FTS5 + Auto-Promotion Triggers
+-- Kairn FTS5 + Auto-Promotion Triggers
 -- Applied AFTER workspace.sql tables are created
 -- Version: 1.0
 

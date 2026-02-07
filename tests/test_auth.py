@@ -7,8 +7,8 @@ import time
 
 import pytest
 
-from engram.auth.jwt import TokenExpiredError, TokenInvalidError, create_token, verify_token
-from engram.auth.permissions import can_admin, can_read, can_write, check_permission
+from kairn.auth.jwt import TokenExpiredError, TokenInvalidError, create_token, verify_token
+from kairn.auth.permissions import can_admin, can_read, can_write, check_permission
 
 
 class TestJWT:
@@ -21,7 +21,7 @@ class TestJWT:
 
     def test_verify_token_valid(self) -> None:
         token = create_token("user-123", "org-456", exp_minutes=1)
-        secret = os.environ.get("ENGRAM_JWT_SECRET", "test-secret-key-do-not-use")
+        secret = os.environ.get("KAIRN_JWT_SECRET", "test-secret-key-do-not-use")
         payload = verify_token(token, secret)
 
         assert payload["sub"] == "user-123"
@@ -30,7 +30,7 @@ class TestJWT:
 
     def test_verify_token_custom_expiry(self) -> None:
         token = create_token("user-789", "org-101", exp_minutes=120)
-        secret = os.environ.get("ENGRAM_JWT_SECRET", "test-secret-key-do-not-use")
+        secret = os.environ.get("KAIRN_JWT_SECRET", "test-secret-key-do-not-use")
         payload = verify_token(token, secret)
 
         assert payload["sub"] == "user-789"
@@ -40,7 +40,7 @@ class TestJWT:
 
     def test_verify_token_expired(self) -> None:
         token = create_token("user-123", "org-456", exp_minutes=-1)
-        secret = os.environ.get("ENGRAM_JWT_SECRET", "test-secret-key-do-not-use")
+        secret = os.environ.get("KAIRN_JWT_SECRET", "test-secret-key-do-not-use")
 
         with pytest.raises(TokenExpiredError):
             verify_token(token, secret)
@@ -53,7 +53,7 @@ class TestJWT:
             verify_token(token, wrong_secret)
 
     def test_verify_token_malformed(self) -> None:
-        secret = os.environ.get("ENGRAM_JWT_SECRET", "test-secret-key-do-not-use")
+        secret = os.environ.get("KAIRN_JWT_SECRET", "test-secret-key-do-not-use")
 
         with pytest.raises(TokenInvalidError):
             verify_token("not.a.valid.jwt", secret)

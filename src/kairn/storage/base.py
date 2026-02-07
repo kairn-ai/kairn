@@ -1,4 +1,4 @@
-"""Abstract storage interface for Engram."""
+"""Abstract storage interface for Kairn."""
 
 from __future__ import annotations
 
@@ -7,7 +7,7 @@ from typing import Any
 
 
 class StorageBackend(ABC):
-    """Abstract interface for Engram storage backends."""
+    """Abstract interface for Kairn storage backends."""
 
     @abstractmethod
     async def initialize(self) -> None:

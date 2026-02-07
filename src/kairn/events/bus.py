@@ -1,4 +1,4 @@
-"""Async event bus for Engram."""
+"""Async event bus for Kairn."""
 
 from __future__ import annotations
 
@@ -8,7 +8,7 @@ from collections import defaultdict
 from collections.abc import Callable, Coroutine
 from typing import Any
 
-from engram.events.types import EventType
+from kairn.events.types import EventType
 
 logger = logging.getLogger(__name__)
 

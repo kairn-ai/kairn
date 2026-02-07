@@ -8,14 +8,14 @@ from __future__ import annotations
 import pytest
 import pytest_asyncio
 
-from engram.core.experience import ExperienceEngine
-from engram.core.graph import GraphEngine
-from engram.core.ideas import IdeaEngine
-from engram.core.intelligence import IntelligenceLayer
-from engram.core.memory import ProjectMemory
-from engram.core.router import ContextRouter
-from engram.events.bus import EventBus
-from engram.storage.sqlite_store import SQLiteStore
+from kairn.core.experience import ExperienceEngine
+from kairn.core.graph import GraphEngine
+from kairn.core.ideas import IdeaEngine
+from kairn.core.intelligence import IntelligenceLayer
+from kairn.core.memory import ProjectMemory
+from kairn.core.router import ContextRouter
+from kairn.events.bus import EventBus
+from kairn.storage.sqlite_store import SQLiteStore
 
 
 @pytest_asyncio.fixture
@@ -53,7 +53,7 @@ async def engine(tmp_path):
 
 
 class TestLearn:
-    """Tests for eg_learn — confidence-based knowledge routing."""
+    """Tests for kn_learn — confidence-based knowledge routing."""
 
     @pytest.mark.asyncio
     async def test_learn_high_confidence_creates_node(self, engine: IntelligenceLayer):
@@ -185,7 +185,7 @@ class TestLearn:
 
 
 class TestRecall:
-    """Tests for eg_recall — cross-namespace, decay-aware recall."""
+    """Tests for kn_recall — cross-namespace, decay-aware recall."""
 
     @pytest.mark.asyncio
     async def test_recall_finds_learned_knowledge(self, engine: IntelligenceLayer):
@@ -279,7 +279,7 @@ class TestRecall:
 
 
 class TestCrossref:
-    """Tests for eg_crossref — cross-workspace discovery."""
+    """Tests for kn_crossref — cross-workspace discovery."""
 
     @pytest.mark.asyncio
     async def test_crossref_finds_related_patterns(self, engine: IntelligenceLayer):
@@ -333,7 +333,7 @@ class TestCrossref:
 
 
 class TestContext:
-    """Tests for eg_context — progressive disclosure subgraph."""
+    """Tests for kn_context — progressive disclosure subgraph."""
 
     @pytest.mark.asyncio
     async def test_context_returns_relevant_subgraph(
@@ -380,7 +380,7 @@ class TestContext:
 
 
 class TestRelated:
-    """Tests for eg_related — BFS/DFS traversal."""
+    """Tests for kn_related — BFS/DFS traversal."""
 
     @pytest.mark.asyncio
     async def test_related_finds_connected_nodes(self, engine: IntelligenceLayer):

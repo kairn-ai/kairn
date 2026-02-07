@@ -7,9 +7,9 @@ import logging
 import re
 from typing import Any
 
-from engram.events.bus import EventBus
-from engram.events.types import EventType
-from engram.storage.base import StorageBackend
+from kairn.events.bus import EventBus
+from kairn.events.types import EventType
+from kairn.storage.base import StorageBackend
 
 logger = logging.getLogger(__name__)
 

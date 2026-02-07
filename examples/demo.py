@@ -1,7 +1,7 @@
-"""Interactive demo showcasing engram's learn→recall→crossref→context workflow.
+"""Interactive demo showcasing kairn's learn→recall→crossref→context workflow.
 
 Walks through creating knowledge nodes, experiences, projects, and using the
-intelligence layer to demonstrate the core engram capabilities.
+intelligence layer to demonstrate the core kairn capabilities.
 """
 
 import asyncio
@@ -14,14 +14,14 @@ from rich.json import JSON
 from rich.panel import Panel
 from rich.table import Table
 
-from engram.core.experience import ExperienceEngine
-from engram.core.graph import GraphEngine
-from engram.core.ideas import IdeaEngine
-from engram.core.intelligence import IntelligenceLayer
-from engram.core.memory import ProjectMemory
-from engram.core.router import ContextRouter
-from engram.events.bus import EventBus
-from engram.storage.sqlite_store import SQLiteStore
+from kairn.core.experience import ExperienceEngine
+from kairn.core.graph import GraphEngine
+from kairn.core.ideas import IdeaEngine
+from kairn.core.intelligence import IntelligenceLayer
+from kairn.core.memory import ProjectMemory
+from kairn.core.router import ContextRouter
+from kairn.events.bus import EventBus
+from kairn.storage.sqlite_store import SQLiteStore
 
 console = Console()
 
@@ -52,7 +52,7 @@ async def demo() -> None:
         "[bold magenta]╔═══════════════════════════════════════════════════╗[/bold magenta]"
     )
     console.print(
-        "[bold magenta]║[/bold magenta] [bold white]ENGRAM DEMO: "
+        "[bold magenta]║[/bold magenta] [bold white]KAIRN DEMO: "
         "Learn → Recall → Crossref → Context[/bold white] "
         "[bold magenta]║[/bold magenta]"
     )
@@ -61,15 +61,15 @@ async def demo() -> None:
     )
     console.print(
         "\n[dim]This demo creates a temporary workspace and walks through\n"
-        "the core engram workflow using an e-commerce API project.[/dim]\n"
+        "the core kairn workflow using an e-commerce API project.[/dim]\n"
     )
 
     # Create temporary workspace
     temp_dir = tempfile.mkdtemp()
-    db_path = Path(temp_dir) / "engram.db"
+    db_path = Path(temp_dir) / "kairn.db"
     console.print(f"[dim]Workspace: {db_path}[/dim]\n")
 
-    # Initialize engram components
+    # Initialize kairn components
     store = SQLiteStore(db_path)
     await store.initialize()
     bus = EventBus()
@@ -305,7 +305,7 @@ async def demo() -> None:
 
     # Learn
     console.print("\n[bold]8.1 Learn[/bold] - Store new knowledge")
-    console.print("[dim]Teaching engram about a new deployment pattern...[/dim]\n")
+    console.print("[dim]Teaching kairn about a new deployment pattern...[/dim]\n")
 
     learn_result = await intelligence.learn(
         content="Blue-green deployment with automated rollback reduces downtime to <1 second.",

@@ -1,4 +1,4 @@
-"""Shared test fixtures for Engram."""
+"""Shared test fixtures for Kairn."""
 
 from __future__ import annotations
 
@@ -6,8 +6,8 @@ from pathlib import Path
 
 import pytest
 
-from engram.config import Config
-from engram.storage.sqlite_store import SQLiteStore
+from kairn.config import Config
+from kairn.storage.sqlite_store import SQLiteStore
 
 
 @pytest.fixture

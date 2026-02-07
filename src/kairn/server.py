@@ -10,14 +10,14 @@ from typing import Annotated, Any
 from fastmcp import FastMCP
 from pydantic import Field
 
-from engram.core.experience import ExperienceEngine
-from engram.core.graph import GraphEngine
-from engram.core.ideas import IdeaEngine
-from engram.core.intelligence import IntelligenceLayer
-from engram.core.memory import ProjectMemory
-from engram.core.router import ContextRouter
-from engram.events.bus import EventBus
-from engram.storage.sqlite_store import SQLiteStore
+from kairn.core.experience import ExperienceEngine
+from kairn.core.graph import GraphEngine
+from kairn.core.ideas import IdeaEngine
+from kairn.core.intelligence import IntelligenceLayer
+from kairn.core.memory import ProjectMemory
+from kairn.core.router import ContextRouter
+from kairn.events.bus import EventBus
+from kairn.storage.sqlite_store import SQLiteStore
 
 logger = logging.getLogger(__name__)
 
@@ -28,7 +28,7 @@ def _json(data: dict[str, Any]) -> str:
 
 def create_server(db_path: str) -> FastMCP:
     """Create FastMCP server: 18 tools (5 graph + 3 project + 3 exp + 2 ideas + 5 intel)."""
-    mcp = FastMCP("engram", version="0.1.0")
+    mcp = FastMCP("kairn", version="0.1.0")
 
     state: dict[str, Any] = {}
     _lock = asyncio.Lock()
@@ -36,7 +36,7 @@ def create_server(db_path: str) -> FastMCP:
     async def _init() -> dict[str, Any]:
         async with _lock:
             if "init_failed" in state:
-                raise RuntimeError(f"Engram init previously failed for {db_path}")
+                raise RuntimeError(f"Kairn init previously failed for {db_path}")
             if "graph" not in state:
                 from pathlib import Path
 
@@ -46,7 +46,7 @@ def create_server(db_path: str) -> FastMCP:
                 except Exception as e:
                     state["init_failed"] = True
                     logger.error("Failed to initialize database: %s", e)
-                    raise RuntimeError(f"Engram init failed: {db_path}") from e
+                    raise RuntimeError(f"Kairn init failed: {db_path}") from e
                 bus = EventBus()
                 state["store"] = store
                 state["bus"] = bus
@@ -72,7 +72,7 @@ def create_server(db_path: str) -> FastMCP:
         return state
 
     @mcp.tool()
-    async def eg_add(
+    async def kn_add(
         name: Annotated[str, Field(description="Node name")],
         type: Annotated[
             str,
@@ -123,7 +123,7 @@ def create_server(db_path: str) -> FastMCP:
         return _json(result)
 
     @mcp.tool()
-    async def eg_connect(
+    async def kn_connect(
         source_id: Annotated[str, Field(description="Source node ID")],
         target_id: Annotated[str, Field(description="Target node ID")],
         edge_type: Annotated[str, Field(description="Relationship type")],
@@ -159,7 +159,7 @@ def create_server(db_path: str) -> FastMCP:
             return _json({"_v": "1.0", "error": str(e)})
 
     @mcp.tool()
-    async def eg_query(
+    async def kn_query(
         text: Annotated[
             str | None,
             Field(
@@ -226,7 +226,7 @@ def create_server(db_path: str) -> FastMCP:
         )
 
     @mcp.tool()
-    async def eg_remove(
+    async def kn_remove(
         node_id: Annotated[
             str | None,
             Field(
@@ -297,7 +297,7 @@ def create_server(db_path: str) -> FastMCP:
         )
 
     @mcp.tool()
-    async def eg_status() -> str:
+    async def kn_status() -> str:
         """Graph stats, health, and system overview."""
         s = await _init()
         stats = await s["graph"].stats()
@@ -307,7 +307,7 @@ def create_server(db_path: str) -> FastMCP:
     # ── Project Memory tools (3) ───────────────────────────────
 
     @mcp.tool()
-    async def eg_project(
+    async def kn_project(
         name: Annotated[str, Field(description="Project name")],
         project_id: Annotated[
             str | None,
@@ -384,7 +384,7 @@ def create_server(db_path: str) -> FastMCP:
         return _json(result)
 
     @mcp.tool()
-    async def eg_projects(
+    async def kn_projects(
         active_only: Annotated[
             bool,
             Field(description="Only show active projects"),
@@ -416,7 +416,7 @@ def create_server(db_path: str) -> FastMCP:
         return _json({"_v": "1.0", "count": len(items), "projects": items})
 
     @mcp.tool()
-    async def eg_log(
+    async def kn_log(
         project_id: Annotated[str, Field(description="Project ID")],
         action: Annotated[str, Field(description="What was done or what failed")],
         type: Annotated[
@@ -469,7 +469,7 @@ def create_server(db_path: str) -> FastMCP:
     # ── Experience Memory tools (3) ──────────────────────────
 
     @mcp.tool()
-    async def eg_save(
+    async def kn_save(
         content: Annotated[str, Field(description="What was learned/discovered")],
         type: Annotated[
             str,
@@ -516,7 +516,7 @@ def create_server(db_path: str) -> FastMCP:
         )
 
     @mcp.tool()
-    async def eg_memories(
+    async def kn_memories(
         text: Annotated[
             str | None,
             Field(description="Full-text search query"),
@@ -565,7 +565,7 @@ def create_server(db_path: str) -> FastMCP:
         return _json({"_v": "1.0", "count": len(items), "experiences": items})
 
     @mcp.tool()
-    async def eg_prune(
+    async def kn_prune(
         threshold: Annotated[
             float,
             Field(
@@ -589,7 +589,7 @@ def create_server(db_path: str) -> FastMCP:
     # ── Idea tools (2) ───────────────────────────────────────
 
     @mcp.tool()
-    async def eg_idea(
+    async def kn_idea(
         title: Annotated[str, Field(description="Idea title")],
         idea_id: Annotated[
             str | None,
@@ -664,7 +664,7 @@ def create_server(db_path: str) -> FastMCP:
         return _json(result)
 
     @mcp.tool()
-    async def eg_ideas(
+    async def kn_ideas(
         status: Annotated[
             str | None,
             Field(description="Filter by status"),
@@ -705,7 +705,7 @@ def create_server(db_path: str) -> FastMCP:
     # ── Intelligence tools (5) ────────────────────────────────
 
     @mcp.tool()
-    async def eg_learn(
+    async def kn_learn(
         content: Annotated[str, Field(description="What was learned/decided/discovered")],
         type: Annotated[
             str,
@@ -743,7 +743,7 @@ def create_server(db_path: str) -> FastMCP:
         return _json(result)
 
     @mcp.tool()
-    async def eg_recall(
+    async def kn_recall(
         topic: Annotated[
             str | None,
             Field(description="Topic to recall knowledge about"),
@@ -777,7 +777,7 @@ def create_server(db_path: str) -> FastMCP:
         )
 
     @mcp.tool()
-    async def eg_crossref(
+    async def kn_crossref(
         problem: Annotated[str, Field(description="Problem description to find solutions for")],
         limit: Annotated[
             int,
@@ -806,7 +806,7 @@ def create_server(db_path: str) -> FastMCP:
         )
 
     @mcp.tool()
-    async def eg_context(
+    async def kn_context(
         keywords: Annotated[str, Field(description="Keywords to find relevant context for")],
         detail: Annotated[
             str,
@@ -827,7 +827,7 @@ def create_server(db_path: str) -> FastMCP:
         return _json(result)
 
     @mcp.tool()
-    async def eg_related(
+    async def kn_related(
         node_id: Annotated[str, Field(description="Starting node ID")],
         depth: Annotated[
             int,
@@ -858,8 +858,8 @@ def create_server(db_path: str) -> FastMCP:
 
     # ── Resources (3) ──────────────────────────────────────────
 
-    @mcp.resource("eg://status")
-    async def eg_resource_status() -> str:
+    @mcp.resource("kn://status")
+    async def kn_resource_status() -> str:
         """Graph and system overview."""
         s = await _init()
         stats = await s["graph"].stats()
@@ -879,8 +879,8 @@ def create_server(db_path: str) -> FastMCP:
             }
         )
 
-    @mcp.resource("eg://projects")
-    async def eg_resource_projects() -> str:
+    @mcp.resource("kn://projects")
+    async def kn_resource_projects() -> str:
         """All projects with progress summaries."""
         s = await _init()
         mem = s["memory"]
@@ -900,8 +900,8 @@ def create_server(db_path: str) -> FastMCP:
             )
         return _json({"_v": "1.0", "count": len(items), "projects": items})
 
-    @mcp.resource("eg://memories")
-    async def eg_resource_memories() -> str:
+    @mcp.resource("kn://memories")
+    async def kn_resource_memories() -> str:
         """Recent high-relevance experiences."""
         s = await _init()
         experiences = await s["experience"].search(
@@ -923,7 +923,7 @@ def create_server(db_path: str) -> FastMCP:
     # ── Prompts (2) ──────────────────────────────────────────
 
     @mcp.prompt()
-    async def eg_bootup() -> str:
+    async def kn_bootup() -> str:
         """Session start — load active project, recent progress, and top memories."""
         s = await _init()
         mem = s["memory"]
@@ -945,7 +945,7 @@ def create_server(db_path: str) -> FastMCP:
         memory_lines = [f"  [{e.type}] {e.content[:80]}" for e in experiences]
 
         # Build context
-        parts = ["# Engram Session Context\n"]
+        parts = ["# Kairn Session Context\n"]
 
         if active:
             parts.append(f"## Active Project: {active.name}")
@@ -956,7 +956,7 @@ def create_server(db_path: str) -> FastMCP:
                 parts.append("\nRecent progress:")
                 parts.extend(progress_lines)
         else:
-            parts.append("No active project. Use eg_project to create one.")
+            parts.append("No active project. Use kn_project to create one.")
 
         if memory_lines:
             parts.append("\n## Key Memories")
@@ -972,7 +972,7 @@ def create_server(db_path: str) -> FastMCP:
         return "\n".join(parts)
 
     @mcp.prompt()
-    async def eg_review() -> str:
+    async def kn_review() -> str:
         """Session review — summarize what happened and suggest next steps."""
         s = await _init()
         mem = s["memory"]

@@ -9,7 +9,7 @@ from typing import Any
 
 import aiosqlite
 
-from engram.storage.base import StorageBackend
+from kairn.storage.base import StorageBackend
 
 logger = logging.getLogger(__name__)
 

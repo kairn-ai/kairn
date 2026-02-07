@@ -1,7 +1,7 @@
 {
   "mcpServers": {
-    "engram": {
-      "command": "engram",
+    "kairn": {
+      "command": "kairn",
       "args": ["serve", "~/my-brain"]
     }
   }

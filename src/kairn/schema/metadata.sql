@@ -1,4 +1,4 @@
--- Engram Central Metadata Schema (metadata.db)
+-- Kairn Central Metadata Schema (metadata.db)
 -- Version: 1.0
 
 PRAGMA journal_mode=WAL;

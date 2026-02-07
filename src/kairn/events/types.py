@@ -1,4 +1,4 @@
-"""Event type constants for Engram."""
+"""Event type constants for Kairn."""
 
 from enum import StrEnum
 

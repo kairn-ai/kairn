@@ -1,4 +1,4 @@
-"""Engram configuration management."""
+"""Kairn configuration management."""
 
 from __future__ import annotations
 
@@ -11,9 +11,9 @@ import yaml
 
 @dataclass
 class Config:
-    """Engram configuration."""
+    """Kairn configuration."""
 
-    workspace_path: Path = field(default_factory=lambda: Path.home() / ".engram")
+    workspace_path: Path = field(default_factory=lambda: Path.home() / ".kairn")
     default_workspace: str = "default"
     log_level: str = "INFO"
     pagination_default: int = 10
@@ -46,11 +46,11 @@ class Config:
             config.workspace_path = workspace_path
 
         # Override from env
-        env_path = os.environ.get("ENGRAM_WORKSPACE")
+        env_path = os.environ.get("KAIRN_WORKSPACE")
         if env_path:
             config.workspace_path = Path(env_path)
 
-        env_log = os.environ.get("ENGRAM_LOG_LEVEL")
+        env_log = os.environ.get("KAIRN_LOG_LEVEL")
         if env_log:
             config.log_level = env_log
 
