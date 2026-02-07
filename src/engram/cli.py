@@ -1,15 +1,22 @@
-"""CLI — init, serve, status."""
+"""CLI — init, serve, status, workspace, demo, benchmark, token-audit."""
 
 from __future__ import annotations
 
 import asyncio
 import json
+import os
 import sys
+import time
+import uuid
 from pathlib import Path
 
 import click
+from rich.console import Console
+from rich.panel import Panel
+from rich.table import Table
 
 from engram.config import Config
+from engram.storage.metadata_store import MetadataStore
 from engram.storage.sqlite_store import SQLiteStore
 
 
@@ -77,6 +84,415 @@ def status(path: str) -> None:
 
     stats = asyncio.run(_status())
     click.echo(json.dumps(stats, indent=2))
+
+
+@main.group()
+def workspace() -> None:
+    """Manage workspaces."""
+
+
+@workspace.command()
+@click.argument("name")
+@click.option("--org", default="default", help="Organization ID")
+@click.option("--description", default=None, help="Workspace description")
+@click.option("--type", "workspace_type", default="project", help="Workspace type")
+def create(name: str, org: str, description: str | None, workspace_type: str) -> None:
+    """Create a new workspace."""
+    config = Config.load()
+
+    async def _create() -> None:
+        store = MetadataStore(config.metadata_db_path)
+        await store.initialize()
+
+        try:
+            workspace_id = str(uuid.uuid4())
+            user_id = "cli-user"
+            org_id = org
+
+            existing_user = await store.get_user(user_id)
+            if not existing_user:
+                await store.create_user(user_id, "cli@local", "CLI User")
+
+            existing_org = await store.get_org(org_id)
+            if not existing_org:
+                await store.create_org(org_id, org_id.capitalize(), user_id)
+
+            await store.create_workspace(
+                workspace_id=workspace_id,
+                org_id=org_id,
+                name=name,
+                created_by=user_id,
+                description=description,
+                workspace_type=workspace_type,
+            )
+
+            await store.add_member(workspace_id, user_id, role="owner")
+
+            workspace_db = config.workspace_db_path(workspace_id)
+            workspace_db.parent.mkdir(parents=True, exist_ok=True)
+            ws_store = SQLiteStore(workspace_db)
+            await ws_store.initialize()
+            await ws_store.close()
+
+            console = Console()
+            console.print(
+                Panel(
+                    f"[green]✓[/green] Workspace created: {name}\n"
+                    f"ID: {workspace_id}\n"
+                    f"Organization: {org_id}\n"
+                    f"Database: {workspace_db}",
+                    title="Workspace Created",
+                )
+            )
+
+        except Exception as e:
+            click.echo(f"Error: {e}", err=True)
+            sys.exit(1)
+        finally:
+            await store.close()
+
+    asyncio.run(_create())
+
+
+@workspace.command()
+@click.argument("workspace_id")
+@click.option("--token", required=True, help="JWT token for authentication")
+def join(workspace_id: str, token: str) -> None:
+    """Join an existing workspace."""
+    config = Config.load()
+    secret = os.environ.get("ENGRAM_JWT_SECRET", "test-secret-key-do-not-use")
+
+    async def _join() -> None:
+        from engram.auth.jwt import TokenExpiredError, TokenInvalidError, verify_token
+
+        store = MetadataStore(config.metadata_db_path)
+        await store.initialize()
+
+        try:
+            try:
+                payload = verify_token(token, secret)
+                user_id = payload.get("sub")
+                if not user_id:
+                    raise TokenInvalidError("Token missing user ID")
+            except (TokenExpiredError, TokenInvalidError) as e:
+                click.echo(f"Authentication failed: {e}", err=True)
+                sys.exit(1)
+
+            workspace_data = await store.get_workspace(workspace_id)
+            if not workspace_data:
+                click.echo(f"Error: Workspace {workspace_id} not found", err=True)
+                sys.exit(1)
+
+            existing_role = await store.get_member_role(workspace_id, user_id)
+            if existing_role:
+                click.echo(f"You are already a member of this workspace (role: {existing_role})")
+                return
+
+            await store.add_member(workspace_id, user_id, role="contributor")
+
+            console = Console()
+            console.print(
+                Panel(
+                    f"[green]✓[/green] Joined workspace: {workspace_data['name']}\n"
+                    f"ID: {workspace_id}\n"
+                    f"Role: contributor",
+                    title="Workspace Joined",
+                )
+            )
+
+        except Exception as e:
+            click.echo(f"Error: {e}", err=True)
+            sys.exit(1)
+        finally:
+            await store.close()
+
+    asyncio.run(_join())
+
+
+@workspace.command()
+@click.argument("workspace_id")
+def leave(workspace_id: str) -> None:
+    """Leave a workspace."""
+    config = Config.load()
+
+    async def _leave() -> None:
+        store = MetadataStore(config.metadata_db_path)
+        await store.initialize()
+
+        try:
+            user_id = "cli-user"
+
+            workspace_data = await store.get_workspace(workspace_id)
+            if not workspace_data:
+                click.echo(f"Error: Workspace {workspace_id} not found", err=True)
+                sys.exit(1)
+
+            existing_role = await store.get_member_role(workspace_id, user_id)
+            if not existing_role:
+                click.echo("You are not a member of this workspace")
+                return
+
+            removed = await store.remove_member(workspace_id, user_id)
+            if removed:
+                console = Console()
+                console.print(
+                    Panel(
+                        f"[green]✓[/green] Left workspace: {workspace_data['name']}\n"
+                        f"ID: {workspace_id}",
+                        title="Workspace Left",
+                    )
+                )
+            else:
+                click.echo("Failed to leave workspace", err=True)
+                sys.exit(1)
+
+        except Exception as e:
+            click.echo(f"Error: {e}", err=True)
+            sys.exit(1)
+        finally:
+            await store.close()
+
+    asyncio.run(_leave())
+
+
+@main.command()
+@click.argument("path", type=click.Path(exists=True))
+def demo(path: str) -> None:
+    """Interactive demo tutorial."""
+    workspace = Path(path).expanduser().resolve()
+    db_path = workspace / "engram.db"
+
+    if not db_path.exists():
+        click.echo(f"Error: No database at {db_path}. Run 'engram init' first.", err=True)
+        sys.exit(1)
+
+    console = Console()
+
+    async def _demo() -> None:
+        from engram.core.experience import ExperienceEngine
+        from engram.core.graph import GraphEngine
+        from engram.core.ideas import IdeaEngine
+        from engram.core.intelligence import IntelligenceLayer
+        from engram.core.memory import ProjectMemory
+        from engram.core.router import ContextRouter
+        from engram.events.bus import EventBus
+
+        store = SQLiteStore(db_path)
+        await store.initialize()
+        bus = EventBus()
+        graph = GraphEngine(store, bus)
+        router = ContextRouter(store, bus)
+        memory_eng = ProjectMemory(store, bus)
+        experience = ExperienceEngine(store, bus)
+        ideas_eng = IdeaEngine(store, bus)
+        intel = IntelligenceLayer(
+            store=store,
+            event_bus=bus,
+            graph=graph,
+            router=router,
+            memory=memory_eng,
+            experience=experience,
+            ideas=ideas_eng,
+        )
+
+        console.print(
+            Panel(
+                "[bold cyan]Engram Demo Tutorial[/bold cyan]\n\n"
+                "This demo walks through core features:\n"
+                "1. Create a node    4. Learn knowledge\n"
+                "2. Query nodes      5. Recall knowledge\n"
+                "3. Save experience  6. Get context",
+                title="Welcome to Engram",
+            )
+        )
+
+        console.print("\n[bold]Step 1: Creating a node[/bold]")
+        node = await graph.add_node(
+            name="JWT Authentication",
+            type="auth",
+            namespace="knowledge",
+            description="Use JWT with refresh tokens for stateless auth",
+            tags=["authentication", "security"],
+        )
+        console.print(f"  [green]✓[/green] Created node: {node.name} ({node.id[:8]}...)")
+
+        console.print("\n[bold]Step 2: Querying nodes[/bold]")
+        results = await graph.query(text="authentication", limit=5)
+        console.print(f"  [green]✓[/green] Found {len(results)} node(s)")
+
+        console.print("\n[bold]Step 3: Saving an experience[/bold]")
+        exp = await experience.save(
+            content="Token bucket rate limiting solved API abuse",
+            type="solution",
+            context="API Gateway sprint",
+            confidence="high",
+            tags=["rate-limiting"],
+        )
+        console.print(f"  [green]✓[/green] Saved experience: {exp.id[:8]}...")
+
+        console.print("\n[bold]Step 4: Learning knowledge[/bold]")
+        learn_result = await intel.learn(
+            content="Redis for session storage improves auth performance",
+            type="pattern",
+            confidence="high",
+            tags=["redis", "auth"],
+        )
+        console.print(f"  [green]✓[/green] Stored as: {learn_result['stored_as']}")
+
+        console.print("\n[bold]Step 5: Recalling knowledge[/bold]")
+        recall_results = await intel.recall(topic="authentication", limit=3)
+        console.print(f"  [green]✓[/green] Recalled {len(recall_results)} item(s)")
+
+        console.print("\n[bold]Step 6: Getting context[/bold]")
+        ctx = await intel.context(keywords="authentication security", limit=3)
+        console.print(f"  [green]✓[/green] Context has {ctx['count']} item(s)")
+
+        await store.close()
+
+        console.print(
+            Panel(
+                "[bold green]Demo Complete![/bold green]\n\n"
+                "You've seen Engram's core capabilities:\n"
+                "  Graph storage and search\n"
+                "  Experience tracking with decay\n"
+                "  Intelligence: learn, recall, context\n\n"
+                "Ready to integrate with your AI workflow!",
+                title="Success",
+            )
+        )
+
+    asyncio.run(_demo())
+
+
+@main.command()
+@click.argument("path", type=click.Path(exists=True))
+@click.option("--nodes", default=1000, help="Number of nodes to create")
+def benchmark(path: str, nodes: int) -> None:
+    """Run performance benchmarks."""
+    workspace = Path(path).expanduser().resolve()
+    db_path = workspace / "engram.db"
+
+    if not db_path.exists():
+        click.echo(f"Error: No database at {db_path}. Run 'engram init' first.", err=True)
+        sys.exit(1)
+
+    console = Console()
+
+    async def _benchmark() -> None:
+        from engram.core.graph import GraphEngine
+        from engram.events.bus import EventBus
+
+        store = SQLiteStore(db_path)
+        await store.initialize()
+        bus = EventBus()
+        graph = GraphEngine(store, bus)
+
+        console.print(
+            Panel(
+                f"[bold cyan]Performance Benchmark[/bold cyan]\n\n"
+                f"Creating {nodes} nodes and measuring performance...",
+                title="Engram Benchmark",
+            )
+        )
+
+        table = Table(title="Benchmark Results")
+        table.add_column("Operation", style="cyan")
+        table.add_column("Time (s)", style="magenta")
+        table.add_column("Ops/sec", style="green")
+
+        # Insert benchmark
+        node_ids: list[str] = []
+        start = time.time()
+        for i in range(nodes):
+            node = await graph.add_node(
+                name=f"bench-node-{i}",
+                type="test",
+                namespace="knowledge",
+                description=f"Benchmark node {i} with content for search testing",
+            )
+            node_ids.append(node.id)
+        insert_time = time.time() - start
+        table.add_row("Insert", f"{insert_time:.2f}", f"{nodes / insert_time:.0f}")
+
+        # FTS5 query benchmark
+        iterations = 100
+        start = time.time()
+        for _ in range(iterations):
+            await graph.query(text="benchmark search testing", limit=10)
+        query_time = (time.time() - start) / iterations
+        table.add_row("FTS5 Query", f"{query_time:.4f}", f"{1 / query_time:.0f}")
+
+        # Graph traversal benchmark
+        if len(node_ids) >= 2:
+            await graph.connect(node_ids[0], node_ids[1], "test_link")
+            start = time.time()
+            for _ in range(iterations):
+                await graph.get_related(node_ids[0], depth=1)
+            traverse_time = (time.time() - start) / iterations
+            table.add_row("Graph Traversal", f"{traverse_time:.4f}", f"{1 / traverse_time:.0f}")
+
+        console.print(table)
+
+        # Cleanup
+        console.print("\n[yellow]Cleaning up test data...[/yellow]")
+        for node_id in node_ids:
+            await store.soft_delete_node(node_id)
+        await store.close()
+        console.print("[green]✓[/green] Cleanup complete")
+
+    asyncio.run(_benchmark())
+
+
+@main.command()
+@click.argument("path", type=click.Path(exists=True))
+def token_audit(path: str) -> None:
+    """Count tokens in tool definitions."""
+    workspace = Path(path).expanduser().resolve()
+    db_path = workspace / "engram.db"
+
+    if not db_path.exists():
+        click.echo(f"Error: No database at {db_path}. Run 'engram init' first.", err=True)
+        sys.exit(1)
+
+    console = Console()
+
+    async def _token_audit() -> None:
+        from fastmcp import Client
+
+        from engram.server import create_server
+
+        server = create_server(str(db_path))
+        async with Client(server) as client:
+            tools = await client.list_tools()
+
+        table = Table(title="Token Audit")
+        table.add_column("Tool", style="cyan")
+        table.add_column("Estimated Tokens", style="magenta", justify="right")
+
+        total_tokens = 0
+        for tool in tools:
+            tool_text = f"{tool.name} {tool.description or ''}"
+            if hasattr(tool, "inputSchema") and tool.inputSchema:
+                tool_text += f" {json.dumps(tool.inputSchema)}"
+
+            words = len(tool_text.split())
+            estimated_tokens = int(words * 1.3)
+            total_tokens += estimated_tokens
+            table.add_row(tool.name, str(estimated_tokens))
+
+        table.add_row("[bold]TOTAL[/bold]", f"[bold]{total_tokens}[/bold]")
+        console.print(table)
+
+        if total_tokens > 3000:
+            console.print(
+                f"\n[red]Warning: Total tokens ({total_tokens}) exceeds target (3000)[/red]"
+            )
+        else:
+            console.print(
+                f"\n[green]✓ Token count ({total_tokens}) is within target (3000)[/green]"
+            )
+
+    asyncio.run(_token_audit())
 
 
 if __name__ == "__main__":
