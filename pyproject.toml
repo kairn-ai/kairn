@@ -1,0 +1,73 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "engram-ai"
+version = "0.1.0"
+description = "Your AI's engram — memory that persists, decays, and connects"
+readme = "README.md"
+license = "MIT"
+requires-python = ">=3.11"
+authors = [{ name = "Engram Contributors" }]
+keywords = ["mcp", "memory", "knowledge-graph", "ai", "claude"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: Software Development :: Libraries",
+]
+dependencies = [
+    "fastmcp>=2.14,<4.0",
+    "pydantic>=2.0,<3.0",
+    "click>=8.0",
+    "rich>=13.0",
+    "pyyaml>=6.0",
+    "aiosqlite>=0.20",
+]
+
+[project.optional-dependencies]
+ai = ["anthropic>=0.40"]
+team = ["pyjwt>=2.0"]
+dev = [
+    "pytest>=8.0",
+    "pytest-asyncio>=0.24",
+    "pytest-cov>=6.0",
+    "ruff>=0.9",
+    "pyright>=1.1",
+]
+
+[project.scripts]
+engram = "engram.cli:main"
+
+[project.urls]
+Homepage = "https://github.com/engram-ai/engram"
+Documentation = "https://engram.dev"
+Repository = "https://github.com/engram-ai/engram"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/engram"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+asyncio_mode = "auto"
+pythonpath = ["src"]
+
+[tool.ruff]
+target-version = "py311"
+line-length = 100
+src = ["src", "tests"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "N", "W", "UP", "B", "SIM", "RUF"]
+ignore = ["SIM105"]
+
+[tool.pyright]
+pythonVersion = "3.11"
+pythonPlatform = "All"
+typeCheckingMode = "standard"
+venvPath = "."
+venv = ".venv"
