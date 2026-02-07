@@ -77,10 +77,11 @@ def status(path: str) -> None:
 
     async def _status() -> dict:
         store = SQLiteStore(db_path)
-        await store.initialize()
-        stats = await store.get_stats()
-        await store.close()
-        return stats
+        try:
+            await store.initialize()
+            return await store.get_stats()
+        finally:
+            await store.close()
 
     stats = asyncio.run(_status())
     click.echo(json.dumps(stats, indent=2))

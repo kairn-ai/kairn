@@ -114,15 +114,11 @@ class ProjectMemory:
 
             # Validate phase value
             if new_phase not in VALID_PHASES:
-                raise ValueError(
-                    f"Invalid phase: {new_phase}. Must be one of {VALID_PHASES}"
-                )
+                raise ValueError(f"Invalid phase: {new_phase}. Must be one of {VALID_PHASES}")
 
             # Check if transition is allowed
             if not self._is_valid_transition(current.phase, new_phase):
-                raise ValueError(
-                    f"Invalid phase transition: {current.phase} → {new_phase}"
-                )
+                raise ValueError(f"Invalid phase transition: {current.phase} → {new_phase}")
 
         # Update the project
         updated_data = await self._store.update_project(project_id, updates)
@@ -201,9 +197,7 @@ class ProjectMemory:
         )
 
         await self._store.insert_progress(entry.to_storage())
-        logger.info(
-            "Logged progress for project %s: %s", project_id, action
-        )
+        logger.info("Logged progress for project %s: %s", project_id, action)
 
         await self._event_bus.emit(
             EventType.PROGRESS_LOGGED,
@@ -240,9 +234,7 @@ class ProjectMemory:
         )
 
         await self._store.insert_progress(entry.to_storage())
-        logger.warning(
-            "Logged failure for project %s: %s", project_id, action
-        )
+        logger.warning("Logged failure for project %s: %s", project_id, action)
 
         await self._event_bus.emit(
             EventType.PROGRESS_LOGGED,

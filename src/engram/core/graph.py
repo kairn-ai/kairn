@@ -4,10 +4,9 @@ from __future__ import annotations
 
 import logging
 import re
+import sqlite3
 from datetime import UTC, datetime
 from typing import Any
-
-import sqlite3
 
 from engram.events.bus import EventBus
 from engram.events.types import EventType

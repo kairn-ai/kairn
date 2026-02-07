@@ -27,7 +27,7 @@ def _json(data: dict[str, Any]) -> str:
 
 
 def create_server(db_path: str) -> FastMCP:
-    """Create a FastMCP server with 18 tools (5 graph + 3 project + 3 experience + 2 ideas + 5 intelligence)."""
+    """Create FastMCP server: 18 tools (5 graph + 3 project + 3 exp + 2 ideas + 5 intel)."""
     mcp = FastMCP("engram", version="0.1.0")
 
     state: dict[str, Any] = {}
@@ -357,10 +357,12 @@ def create_server(db_path: str) -> FastMCP:
         else:
             # Create new — phase always starts at "planning"
             if phase is not None:
-                return _json({
-                    "_v": "1.0",
-                    "error": "phase cannot be set on create (starts at planning)",
-                })
+                return _json(
+                    {
+                        "_v": "1.0",
+                        "error": "phase cannot be set on create (starts at planning)",
+                    }
+                )
             try:
                 project = await mem.create_project(
                     name=name.strip(),
@@ -454,13 +456,15 @@ def create_server(db_path: str) -> FastMCP:
                 next_step=next_step,
             )
 
-        return _json({
-            "_v": "1.0",
-            "id": entry.id,
-            "project_id": entry.project_id,
-            "type": entry.type,
-            "action": entry.action,
-        })
+        return _json(
+            {
+                "_v": "1.0",
+                "id": entry.id,
+                "project_id": entry.project_id,
+                "type": entry.type,
+                "action": entry.action,
+            }
+        )
 
     # ── Experience Memory tools (3) ──────────────────────────
 
@@ -500,14 +504,16 @@ def create_server(db_path: str) -> FastMCP:
         except ValueError as e:
             return _json({"_v": "1.0", "error": str(e)})
 
-        return _json({
-            "_v": "1.0",
-            "id": exp.id,
-            "type": exp.type,
-            "confidence": exp.confidence,
-            "decay_rate": round(exp.decay_rate, 6),
-            "score": exp.score,
-        })
+        return _json(
+            {
+                "_v": "1.0",
+                "id": exp.id,
+                "type": exp.type,
+                "confidence": exp.confidence,
+                "decay_rate": round(exp.decay_rate, 6),
+                "score": exp.score,
+            }
+        )
 
     @mcp.tool()
     async def eg_memories(
@@ -572,11 +578,13 @@ def create_server(db_path: str) -> FastMCP:
         """Remove expired experiences (archive first)."""
         s = await _init()
         pruned = await s["experience"].prune(threshold=threshold)
-        return _json({
-            "_v": "1.0",
-            "pruned_count": len(pruned),
-            "pruned_ids": pruned,
-        })
+        return _json(
+            {
+                "_v": "1.0",
+                "pruned_count": len(pruned),
+                "pruned_ids": pruned,
+            }
+        )
 
     # ── Idea tools (2) ───────────────────────────────────────
 
@@ -760,11 +768,13 @@ def create_server(db_path: str) -> FastMCP:
             limit=limit,
             min_relevance=min_relevance,
         )
-        return _json({
-            "_v": "1.0",
-            "count": len(results),
-            "results": results,
-        })
+        return _json(
+            {
+                "_v": "1.0",
+                "count": len(results),
+                "results": results,
+            }
+        )
 
     @mcp.tool()
     async def eg_crossref(
@@ -787,11 +797,13 @@ def create_server(db_path: str) -> FastMCP:
         except ValueError as e:
             return _json({"_v": "1.0", "error": str(e)})
 
-        return _json({
-            "_v": "1.0",
-            "count": len(results),
-            "results": results,
-        })
+        return _json(
+            {
+                "_v": "1.0",
+                "count": len(results),
+                "results": results,
+            }
+        )
 
     @mcp.tool()
     async def eg_context(
@@ -836,11 +848,13 @@ def create_server(db_path: str) -> FastMCP:
             depth=depth,
             edge_type=edge_type,
         )
-        return _json({
-            "_v": "1.0",
-            "count": len(results),
-            "results": results,
-        })
+        return _json(
+            {
+                "_v": "1.0",
+                "count": len(results),
+                "results": results,
+            }
+        )
 
     # ── Resources (3) ──────────────────────────────────────────
 
@@ -851,15 +865,19 @@ def create_server(db_path: str) -> FastMCP:
         stats = await s["graph"].stats()
         projects = await s["memory"].list_projects(active_only=True)
         active = projects[0] if projects else None
-        return _json({
-            "_v": "1.0",
-            "graph": stats,
-            "active_project": {
-                "id": active.id,
-                "name": active.name,
-                "phase": active.phase,
-            } if active else None,
-        })
+        return _json(
+            {
+                "_v": "1.0",
+                "graph": stats,
+                "active_project": {
+                    "id": active.id,
+                    "name": active.name,
+                    "phase": active.phase,
+                }
+                if active
+                else None,
+            }
+        )
 
     @mcp.resource("eg://projects")
     async def eg_resource_projects() -> str:
@@ -870,17 +888,16 @@ def create_server(db_path: str) -> FastMCP:
         items = []
         for p in projects:
             progress = await mem.get_progress(p.id, limit=3)
-            items.append({
-                "id": p.id,
-                "name": p.name,
-                "phase": p.phase,
-                "active": p.active,
-                "goals": p.goals,
-                "recent_progress": [
-                    {"action": e.action, "type": e.type}
-                    for e in progress
-                ],
-            })
+            items.append(
+                {
+                    "id": p.id,
+                    "name": p.name,
+                    "phase": p.phase,
+                    "active": p.active,
+                    "goals": p.goals,
+                    "recent_progress": [{"action": e.action, "type": e.type} for e in progress],
+                }
+            )
         return _json({"_v": "1.0", "count": len(items), "projects": items})
 
     @mcp.resource("eg://memories")
@@ -925,10 +942,7 @@ def create_server(db_path: str) -> FastMCP:
 
         # Top experiences
         experiences = await s["experience"].search(min_relevance=0.3, limit=5)
-        memory_lines = [
-            f"  [{e.type}] {e.content[:80]}"
-            for e in experiences
-        ]
+        memory_lines = [f"  [{e.type}] {e.content[:80]}" for e in experiences]
 
         # Build context
         parts = ["# Engram Session Context\n"]
@@ -994,7 +1008,7 @@ def create_server(db_path: str) -> FastMCP:
 
             # Suggest next step from most recent entry
             if progress and progress[0].next_step:
-                parts.append(f"\n## Suggested Next Step")
+                parts.append("\n## Suggested Next Step")
                 parts.append(f"{progress[0].next_step}")
         else:
             parts.append("No active project to review.")

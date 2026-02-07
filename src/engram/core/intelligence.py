@@ -23,23 +23,84 @@ from engram.storage.base import StorageBackend
 logger = logging.getLogger(__name__)
 
 _STOP_WORDS = {
-    "the", "a", "an", "is", "are", "was", "were", "be", "been", "being",
-    "have", "has", "had", "do", "does", "did", "will", "would", "could",
-    "should", "may", "might", "can", "shall", "to", "of", "in", "for",
-    "on", "with", "at", "by", "from", "as", "into", "about", "and", "or",
-    "but", "not", "no", "so", "yet", "i", "me", "we", "us", "you", "he",
-    "she", "it", "they", "them", "my", "your", "his", "her", "its", "our",
-    "their", "this", "that", "these", "those", "need", "want", "try",
+    "the",
+    "a",
+    "an",
+    "is",
+    "are",
+    "was",
+    "were",
+    "be",
+    "been",
+    "being",
+    "have",
+    "has",
+    "had",
+    "do",
+    "does",
+    "did",
+    "will",
+    "would",
+    "could",
+    "should",
+    "may",
+    "might",
+    "can",
+    "shall",
+    "to",
+    "of",
+    "in",
+    "for",
+    "on",
+    "with",
+    "at",
+    "by",
+    "from",
+    "as",
+    "into",
+    "about",
+    "and",
+    "or",
+    "but",
+    "not",
+    "no",
+    "so",
+    "yet",
+    "i",
+    "me",
+    "we",
+    "us",
+    "you",
+    "he",
+    "she",
+    "it",
+    "they",
+    "them",
+    "my",
+    "your",
+    "his",
+    "her",
+    "its",
+    "our",
+    "their",
+    "this",
+    "that",
+    "these",
+    "those",
+    "need",
+    "want",
+    "try",
 }
 
 
 def _to_fts_query(text: str) -> str | None:
-    """Convert natural language to FTS5 OR query."""
-    words = re.findall(r"[a-zA-Z0-9_-]+", text.lower())
-    keywords = [w for w in words if w not in _STOP_WORDS and len(w) > 2]
+    """Convert natural language to FTS5 OR query with proper escaping."""
+    words = re.findall(r"[a-zA-Z0-9_]+", text.lower())
+    fts_reserved = {"and", "or", "not", "near"}
+    keywords = [w for w in words if w not in _STOP_WORDS and w not in fts_reserved and len(w) > 2]
     if not keywords:
         return None
-    return " OR ".join(keywords)
+    return " OR ".join(f'"{w}"' for w in keywords)
 
 
 class IntelligenceLayer:
@@ -104,9 +165,7 @@ class IntelligenceLayer:
             node_id = node.id
 
             # Update routes for discoverability
-            await self.router.update_routes_for_node(
-                node.id, node.name, node.description
-            )
+            await self.router.update_routes_for_node(node.id, node.name, node.description)
 
         # Always create experience (for decay tracking)
         exp = await self.experience.save(
@@ -169,14 +228,16 @@ class IntelligenceLayer:
             nodes = await self.graph.query(limit=limit)
 
         for node in nodes:
-            results.append({
-                "source": "node",
-                "id": node.id,
-                "name": node.name,
-                "type": node.type,
-                "description": node.description,
-                "relevance": 1.0,  # Nodes are permanent, full relevance
-            })
+            results.append(
+                {
+                    "source": "node",
+                    "id": node.id,
+                    "name": node.name,
+                    "type": node.type,
+                    "description": node.description,
+                    "relevance": 1.0,  # Nodes are permanent, full relevance
+                }
+            )
 
         # Search experiences (decay-aware)
         experiences = await self.experience.search(
@@ -187,14 +248,16 @@ class IntelligenceLayer:
 
         now = datetime.now(UTC)
         for exp in experiences:
-            results.append({
-                "source": "experience",
-                "id": exp.id,
-                "type": exp.type,
-                "content": exp.content,
-                "confidence": exp.confidence,
-                "relevance": round(exp.relevance(at=now), 4),
-            })
+            results.append(
+                {
+                    "source": "experience",
+                    "id": exp.id,
+                    "type": exp.type,
+                    "content": exp.content,
+                    "confidence": exp.confidence,
+                    "relevance": round(exp.relevance(at=now), 4),
+                }
+            )
 
         # Sort by relevance descending
         results.sort(key=lambda r: r["relevance"], reverse=True)
@@ -233,15 +296,17 @@ class IntelligenceLayer:
         else:
             nodes = []
         for node in nodes:
-            results.append({
-                "source": "node",
-                "workspace": "default",
-                "id": node.id,
-                "name": node.name,
-                "type": node.type,
-                "description": node.description,
-                "relevance": 1.0,
-            })
+            results.append(
+                {
+                    "source": "node",
+                    "workspace": "default",
+                    "id": node.id,
+                    "name": node.name,
+                    "type": node.type,
+                    "description": node.description,
+                    "relevance": 1.0,
+                }
+            )
 
         # Search experiences for solutions
         experiences = await self.experience.search(
@@ -252,15 +317,17 @@ class IntelligenceLayer:
 
         now = datetime.now(UTC)
         for exp in experiences:
-            results.append({
-                "source": "experience",
-                "workspace": "default",
-                "id": exp.id,
-                "type": exp.type,
-                "content": exp.content,
-                "confidence": exp.confidence,
-                "relevance": round(exp.relevance(at=now), 4),
-            })
+            results.append(
+                {
+                    "source": "experience",
+                    "workspace": "default",
+                    "id": exp.id,
+                    "type": exp.type,
+                    "content": exp.content,
+                    "confidence": exp.confidence,
+                    "relevance": round(exp.relevance(at=now), 4),
+                }
+            )
 
         results.sort(key=lambda r: r["relevance"], reverse=True)
         results = results[:limit]
@@ -371,6 +438,4 @@ class IntelligenceLayer:
         edge_type: str | None = None,
     ) -> list[dict[str, Any]]:
         """Find nodes connected to a starting point via BFS."""
-        return await self.graph.get_related(
-            node_id, depth=depth, edge_type=edge_type
-        )
+        return await self.graph.get_related(node_id, depth=depth, edge_type=edge_type)

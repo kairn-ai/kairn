@@ -89,15 +89,12 @@ class ExperienceEngine:
 
         # Validate type
         if type not in VALID_TYPES:
-            raise ValueError(
-                f"Invalid experience type: {type}. Must be one of {VALID_TYPES}"
-            )
+            raise ValueError(f"Invalid experience type: {type}. Must be one of {VALID_TYPES}")
 
         # Validate confidence
         if confidence not in VALID_CONFIDENCES:
             raise ValueError(
-                f"Invalid confidence level: {confidence}. "
-                f"Must be one of {VALID_CONFIDENCES}"
+                f"Invalid confidence level: {confidence}. Must be one of {VALID_CONFIDENCES}"
             )
 
         # Calculate decay_rate
@@ -129,9 +126,7 @@ class ExperienceEngine:
             },
         )
 
-        logger.info(
-            f"Created experience {exp.id} (type={type}, confidence={confidence})"
-        )
+        logger.info(f"Created experience {exp.id} (type={type}, confidence={confidence})")
 
         return exp
 

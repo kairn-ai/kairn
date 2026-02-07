@@ -143,9 +143,7 @@ class MetadataStore:
 
     async def get_org(self, org_id: str) -> dict[str, Any] | None:
         """Get an organization by ID."""
-        cursor = await self.db.execute(
-            "SELECT * FROM organizations WHERE org_id = ?", (org_id,)
-        )
+        cursor = await self.db.execute("SELECT * FROM organizations WHERE org_id = ?", (org_id,))
         row = await cursor.fetchone()
         return _row_to_dict(row) if row else None
 
