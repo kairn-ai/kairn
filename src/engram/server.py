@@ -1,4 +1,4 @@
-"""FastMCP server — Gate 1: 5 graph tools."""
+"""FastMCP server — Gate 2: 13 tools (5 graph + 3 project + 3 experience + 2 ideas)."""
 
 from __future__ import annotations
 
@@ -10,7 +10,10 @@ from typing import Annotated, Any
 from fastmcp import FastMCP
 from pydantic import Field
 
+from engram.core.experience import ExperienceEngine
 from engram.core.graph import GraphEngine
+from engram.core.ideas import IdeaEngine
+from engram.core.memory import ProjectMemory
 from engram.core.router import ContextRouter
 from engram.events.bus import EventBus
 from engram.storage.sqlite_store import SQLiteStore
@@ -23,13 +26,13 @@ def _json(data: dict[str, Any]) -> str:
 
 
 def create_server(db_path: str) -> FastMCP:
-    """Create a FastMCP server with 5 graph tools."""
+    """Create a FastMCP server with 13 tools (5 graph + 3 project + 3 experience + 2 ideas)."""
     mcp = FastMCP("engram", version="0.1.0")
 
     state: dict[str, Any] = {}
     _lock = asyncio.Lock()
 
-    async def _init() -> tuple[GraphEngine, ContextRouter]:
+    async def _init() -> dict[str, Any]:
         async with _lock:
             if "init_failed" in state:
                 raise RuntimeError(f"Engram init previously failed for {db_path}")
@@ -45,9 +48,13 @@ def create_server(db_path: str) -> FastMCP:
                     raise RuntimeError(f"Engram init failed: {db_path}") from e
                 bus = EventBus()
                 state["store"] = store
+                state["bus"] = bus
                 state["graph"] = GraphEngine(store, bus)
                 state["router"] = ContextRouter(store, bus)
-        return state["graph"], state["router"]
+                state["memory"] = ProjectMemory(store, bus)
+                state["experience"] = ExperienceEngine(store, bus)
+                state["ideas"] = IdeaEngine(store, bus)
+        return state
 
     @mcp.tool()
     async def eg_add(
@@ -83,15 +90,15 @@ def create_server(db_path: str) -> FastMCP:
         if not type or not type.strip():
             return _json({"_v": "1.0", "error": "type is required"})
 
-        graph, router = await _init()
-        node = await graph.add_node(
+        s = await _init()
+        node = await s["graph"].add_node(
             name=name.strip(),
             type=type.strip(),
             namespace=namespace,
             description=description,
             tags=tags,
         )
-        await router.update_routes_for_node(
+        await s["router"].update_routes_for_node(
             node.id,
             node.name,
             node.description,
@@ -122,9 +129,9 @@ def create_server(db_path: str) -> FastMCP:
         if not edge_type or not edge_type.strip():
             return _json({"_v": "1.0", "error": "edge_type is required"})
 
-        graph, _ = await _init()
+        s = await _init()
         try:
-            edge = await graph.connect(
+            edge = await s["graph"].connect(
                 source_id,
                 target_id,
                 edge_type,
@@ -185,8 +192,8 @@ def create_server(db_path: str) -> FastMCP:
         ] = 0,
     ) -> str:
         """Search nodes by text, type, tags, or namespace."""
-        graph, _ = await _init()
-        nodes = await graph.query(
+        s = await _init()
+        nodes = await s["graph"].query(
             text=text,
             namespace=namespace,
             node_type=node_type,
@@ -231,10 +238,10 @@ def create_server(db_path: str) -> FastMCP:
         ] = None,
     ) -> str:
         """Soft-delete node or edge. Supports undo."""
-        graph, _ = await _init()
+        s = await _init()
 
         if node_id and node_id.strip():
-            ok = await graph.remove_node(node_id)
+            ok = await s["graph"].remove_node(node_id)
             if ok:
                 return _json(
                     {
@@ -251,7 +258,7 @@ def create_server(db_path: str) -> FastMCP:
             )
 
         if source_id and target_id and edge_type:
-            ok = await graph.disconnect(
+            ok = await s["graph"].disconnect(
                 source_id,
                 target_id,
                 edge_type,
@@ -277,9 +284,399 @@ def create_server(db_path: str) -> FastMCP:
     @mcp.tool()
     async def eg_status() -> str:
         """Graph stats, health, and system overview."""
-        graph, _ = await _init()
-        stats = await graph.stats()
+        s = await _init()
+        stats = await s["graph"].stats()
         stats["_v"] = "1.0"
         return _json(stats)
+
+    # ── Project Memory tools (3) ───────────────────────────────
+
+    @mcp.tool()
+    async def eg_project(
+        name: Annotated[str, Field(description="Project name")],
+        project_id: Annotated[
+            str | None,
+            Field(description="Project ID (omit to create new)"),
+        ] = None,
+        phase: Annotated[
+            str | None,
+            Field(description="Phase: planning|active|paused|done"),
+        ] = None,
+        goals: Annotated[
+            list[str] | None,
+            Field(description="Project goals"),
+        ] = None,
+        stakeholders: Annotated[
+            list[str] | None,
+            Field(description="Stakeholders"),
+        ] = None,
+        success_metrics: Annotated[
+            list[str] | None,
+            Field(description="Success metrics / KPIs"),
+        ] = None,
+    ) -> str:
+        """Create or update project (upsert)."""
+        if not name or not name.strip():
+            return _json({"_v": "1.0", "error": "name is required"})
+
+        s = await _init()
+        mem = s["memory"]
+
+        if project_id:
+            # Update existing
+            updates: dict[str, Any] = {"name": name.strip()}
+            if phase is not None:
+                updates["phase"] = phase
+            if goals is not None:
+                updates["goals"] = goals
+            if stakeholders is not None:
+                updates["stakeholders"] = stakeholders
+            if success_metrics is not None:
+                updates["success_metrics"] = success_metrics
+            try:
+                project = await mem.update_project(project_id, **updates)
+            except ValueError as e:
+                return _json({"_v": "1.0", "error": str(e)})
+            if not project:
+                return _json({"_v": "1.0", "error": f"Project not found: {project_id}"})
+        else:
+            # Create new — phase always starts at "planning"
+            if phase is not None:
+                return _json({
+                    "_v": "1.0",
+                    "error": "phase cannot be set on create (starts at planning)",
+                })
+            try:
+                project = await mem.create_project(
+                    name=name.strip(),
+                    goals=goals,
+                    stakeholders=stakeholders,
+                    success_metrics=success_metrics,
+                )
+            except ValueError as e:
+                return _json({"_v": "1.0", "error": str(e)})
+
+        result = {
+            "_v": "1.0",
+            "id": project.id,
+            "name": project.name,
+            "phase": project.phase,
+            "active": project.active,
+            "goals": project.goals,
+        }
+        return _json(result)
+
+    @mcp.tool()
+    async def eg_projects(
+        active_only: Annotated[
+            bool,
+            Field(description="Only show active projects"),
+        ] = False,
+        set_active: Annotated[
+            str | None,
+            Field(description="Project ID to set as active"),
+        ] = None,
+    ) -> str:
+        """List projects and switch active."""
+        s = await _init()
+        mem = s["memory"]
+
+        if set_active:
+            ok = await mem.set_active_project(set_active)
+            if not ok:
+                return _json({"_v": "1.0", "error": f"Project not found: {set_active}"})
+
+        projects = await mem.list_projects(active_only=active_only)
+        items = [
+            {
+                "id": p.id,
+                "name": p.name,
+                "phase": p.phase,
+                "active": p.active,
+            }
+            for p in projects
+        ]
+        return _json({"_v": "1.0", "count": len(items), "projects": items})
+
+    @mcp.tool()
+    async def eg_log(
+        project_id: Annotated[str, Field(description="Project ID")],
+        action: Annotated[str, Field(description="What was done or what failed")],
+        type: Annotated[
+            str,
+            Field(description="progress or failure"),
+        ] = "progress",
+        result: Annotated[
+            str | None,
+            Field(description="Outcome or error message"),
+        ] = None,
+        next_step: Annotated[
+            str | None,
+            Field(description="Recommended next step"),
+        ] = None,
+    ) -> str:
+        """Log progress or failure entry."""
+        if not project_id or not project_id.strip():
+            return _json({"_v": "1.0", "error": "project_id is required"})
+        if not action or not action.strip():
+            return _json({"_v": "1.0", "error": "action is required"})
+
+        s = await _init()
+        mem = s["memory"]
+
+        if type == "failure":
+            entry = await mem.log_failure(
+                project_id=project_id,
+                action=action,
+                result=result,
+                next_step=next_step,
+            )
+        else:
+            entry = await mem.log_progress(
+                project_id=project_id,
+                action=action,
+                result=result,
+                next_step=next_step,
+            )
+
+        return _json({
+            "_v": "1.0",
+            "id": entry.id,
+            "project_id": entry.project_id,
+            "type": entry.type,
+            "action": entry.action,
+        })
+
+    # ── Experience Memory tools (3) ──────────────────────────
+
+    @mcp.tool()
+    async def eg_save(
+        content: Annotated[str, Field(description="What was learned/discovered")],
+        type: Annotated[
+            str,
+            Field(description="solution|pattern|decision|workaround|gotcha"),
+        ],
+        context: Annotated[
+            str | None,
+            Field(description="Situation when this was learned"),
+        ] = None,
+        confidence: Annotated[
+            str,
+            Field(description="high|medium|low — affects decay rate"),
+        ] = "high",
+        tags: Annotated[
+            list[str] | None,
+            Field(description="Tags for categorization"),
+        ] = None,
+    ) -> str:
+        """Save experience with configurable decay."""
+        if not content or not content.strip():
+            return _json({"_v": "1.0", "error": "content is required"})
+
+        s = await _init()
+        try:
+            exp = await s["experience"].save(
+                content=content.strip(),
+                type=type,
+                context=context,
+                confidence=confidence,
+                tags=tags,
+            )
+        except ValueError as e:
+            return _json({"_v": "1.0", "error": str(e)})
+
+        return _json({
+            "_v": "1.0",
+            "id": exp.id,
+            "type": exp.type,
+            "confidence": exp.confidence,
+            "decay_rate": round(exp.decay_rate, 6),
+            "score": exp.score,
+        })
+
+    @mcp.tool()
+    async def eg_memories(
+        text: Annotated[
+            str | None,
+            Field(description="Full-text search query"),
+        ] = None,
+        type: Annotated[
+            str | None,
+            Field(description="Filter by experience type"),
+        ] = None,
+        min_relevance: Annotated[
+            float,
+            Field(
+                description="Minimum relevance 0.0-1.0",
+                ge=0.0,
+                le=1.0,
+            ),
+        ] = 0.0,
+        limit: Annotated[
+            int,
+            Field(description="Max results", ge=1, le=50),
+        ] = 10,
+        offset: Annotated[
+            int,
+            Field(description="Pagination offset", ge=0),
+        ] = 0,
+    ) -> str:
+        """Decay-aware experience search."""
+        s = await _init()
+        experiences = await s["experience"].search(
+            text=text,
+            exp_type=type,
+            min_relevance=min_relevance,
+            limit=limit,
+            offset=offset,
+        )
+        items = [
+            {
+                "id": e.id,
+                "type": e.type,
+                "content": e.content,
+                "confidence": e.confidence,
+                "relevance": round(e.relevance(), 4),
+                "tags": e.tags,
+            }
+            for e in experiences
+        ]
+        return _json({"_v": "1.0", "count": len(items), "experiences": items})
+
+    @mcp.tool()
+    async def eg_prune(
+        threshold: Annotated[
+            float,
+            Field(
+                description="Remove experiences below this relevance",
+                ge=0.0,
+                le=1.0,
+            ),
+        ] = 0.01,
+    ) -> str:
+        """Remove expired experiences (archive first)."""
+        s = await _init()
+        pruned = await s["experience"].prune(threshold=threshold)
+        return _json({
+            "_v": "1.0",
+            "pruned_count": len(pruned),
+            "pruned_ids": pruned,
+        })
+
+    # ── Idea tools (2) ───────────────────────────────────────
+
+    @mcp.tool()
+    async def eg_idea(
+        title: Annotated[str, Field(description="Idea title")],
+        idea_id: Annotated[
+            str | None,
+            Field(description="Idea ID (omit to create new)"),
+        ] = None,
+        category: Annotated[
+            str | None,
+            Field(description="Category classification"),
+        ] = None,
+        score: Annotated[
+            float | None,
+            Field(description="Numerical score"),
+        ] = None,
+        status: Annotated[
+            str | None,
+            Field(description="Status: draft|evaluating|approved|implementing|done|archived"),
+        ] = None,
+        link_to: Annotated[
+            str | None,
+            Field(description="Node ID to link this idea to"),
+        ] = None,
+    ) -> str:
+        """Create or update idea with graph links."""
+        if not title or not title.strip():
+            return _json({"_v": "1.0", "error": "title is required"})
+
+        s = await _init()
+        ideas_engine = s["ideas"]
+
+        if idea_id:
+            # Update existing
+            updates: dict[str, Any] = {"title": title.strip()}
+            if category is not None:
+                updates["category"] = category
+            if score is not None:
+                updates["score"] = score
+            if status is not None:
+                updates["status"] = status
+            try:
+                idea = await ideas_engine.update(idea_id, **updates)
+            except ValueError as e:
+                return _json({"_v": "1.0", "error": str(e)})
+            if not idea:
+                return _json({"_v": "1.0", "error": f"Idea not found: {idea_id}"})
+        else:
+            # Create new
+            try:
+                idea = await ideas_engine.create(
+                    title=title.strip(),
+                    category=category,
+                    score=score,
+                )
+            except ValueError as e:
+                return _json({"_v": "1.0", "error": str(e)})
+
+        result: dict[str, Any] = {
+            "_v": "1.0",
+            "id": idea.id,
+            "title": idea.title,
+            "status": idea.status,
+            "category": idea.category,
+            "score": idea.score,
+        }
+
+        # Optional graph link
+        if link_to:
+            edge = await ideas_engine.link_to_node(idea.id, link_to)
+            result["linked_to"] = link_to if edge else None
+            if not edge:
+                result["link_error"] = f"Node not found: {link_to}"
+
+        return _json(result)
+
+    @mcp.tool()
+    async def eg_ideas(
+        status: Annotated[
+            str | None,
+            Field(description="Filter by status"),
+        ] = None,
+        category: Annotated[
+            str | None,
+            Field(description="Filter by category"),
+        ] = None,
+        limit: Annotated[
+            int,
+            Field(description="Max results", ge=1, le=50),
+        ] = 10,
+        offset: Annotated[
+            int,
+            Field(description="Pagination offset", ge=0),
+        ] = 0,
+    ) -> str:
+        """List and filter ideas by status/score."""
+        s = await _init()
+        ideas_list = await s["ideas"].list_ideas(
+            status=status,
+            category=category,
+            limit=limit,
+            offset=offset,
+        )
+        items = [
+            {
+                "id": i.id,
+                "title": i.title,
+                "status": i.status,
+                "category": i.category,
+                "score": i.score,
+            }
+            for i in ideas_list
+        ]
+        return _json({"_v": "1.0", "count": len(items), "ideas": items})
 
     return mcp

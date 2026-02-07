@@ -1,4 +1,4 @@
-"""Tests for the FastMCP Server (Gate 1: 5 tools)."""
+"""Tests for the FastMCP Server (Gate 2: 13 tools)."""
 
 from __future__ import annotations
 
@@ -30,12 +30,14 @@ async def client(tmp_path):
 async def test_list_tools(client: Client):
     tools = await client.list_tools()
     names = {t.name for t in tools}
-    assert "eg_add" in names
-    assert "eg_connect" in names
-    assert "eg_query" in names
-    assert "eg_remove" in names
-    assert "eg_status" in names
-    assert len(names) == 5
+    expected = {
+        "eg_add", "eg_connect", "eg_query", "eg_remove", "eg_status",
+        "eg_project", "eg_projects", "eg_log",
+        "eg_save", "eg_memories", "eg_prune",
+        "eg_idea", "eg_ideas",
+    }
+    assert expected.issubset(names)
+    assert len(names) == 13
 
 
 async def test_tool_descriptions_short(client: Client):
@@ -246,3 +248,374 @@ async def test_eg_add_returns_valid_json(client: Client):
     assert "id" in data
     assert data["name"] == "JSON Test"
     assert data["_v"] == "1.0"
+
+
+# ── Project Memory tool tests ────────────────────────────────
+
+
+async def test_eg_project_create(client: Client):
+    result = await client.call_tool("eg_project", {
+        "name": "Alpha",
+        "goals": ["Ship V1"],
+    })
+    data = _data(result)
+    assert data["_v"] == "1.0"
+    assert data["name"] == "Alpha"
+    assert data["phase"] == "planning"
+    assert "id" in data
+
+
+async def test_eg_project_update(client: Client):
+    created = _data(await client.call_tool("eg_project", {"name": "Beta"}))
+    pid = created["id"]
+
+    updated = _data(await client.call_tool("eg_project", {
+        "name": "Beta v2",
+        "project_id": pid,
+        "phase": "active",
+    }))
+    assert updated["name"] == "Beta v2"
+    assert updated["phase"] == "active"
+
+
+async def test_eg_project_invalid_phase(client: Client):
+    created = _data(await client.call_tool("eg_project", {"name": "Gamma"}))
+    pid = created["id"]
+
+    result = _data(await client.call_tool("eg_project", {
+        "name": "Gamma",
+        "project_id": pid,
+        "phase": "invalid",
+    }))
+    assert "error" in result
+
+
+async def test_eg_project_not_found(client: Client):
+    result = _data(await client.call_tool("eg_project", {
+        "name": "Ghost",
+        "project_id": "nonexistent",
+    }))
+    assert "error" in result
+
+
+async def test_eg_project_phase_rejected_on_create(client: Client):
+    result = _data(await client.call_tool("eg_project", {
+        "name": "Eager",
+        "phase": "active",
+    }))
+    assert "error" in result
+    assert "phase" in result["error"].lower()
+
+
+async def test_eg_projects_list(client: Client):
+    await client.call_tool("eg_project", {"name": "P1"})
+    await client.call_tool("eg_project", {"name": "P2"})
+
+    result = _data(await client.call_tool("eg_projects", {}))
+    assert result["_v"] == "1.0"
+    assert result["count"] == 2
+    names = [p["name"] for p in result["projects"]]
+    assert "P1" in names
+    assert "P2" in names
+
+
+async def test_eg_projects_set_active(client: Client):
+    p = _data(await client.call_tool("eg_project", {"name": "Activate Me"}))
+
+    result = _data(await client.call_tool("eg_projects", {
+        "set_active": p["id"],
+    }))
+    assert result["_v"] == "1.0"
+    active = [pr for pr in result["projects"] if pr["active"]]
+    assert len(active) == 1
+    assert active[0]["id"] == p["id"]
+
+
+async def test_eg_projects_set_active_not_found(client: Client):
+    result = _data(await client.call_tool("eg_projects", {
+        "set_active": "nonexistent",
+    }))
+    assert "error" in result
+
+
+async def test_eg_projects_active_only(client: Client):
+    p1 = _data(await client.call_tool("eg_project", {"name": "Active"}))
+    await client.call_tool("eg_project", {"name": "Inactive"})
+    await client.call_tool("eg_projects", {"set_active": p1["id"]})
+
+    result = _data(await client.call_tool("eg_projects", {"active_only": True}))
+    assert result["count"] == 1
+    assert result["projects"][0]["name"] == "Active"
+
+
+async def test_eg_log_progress(client: Client):
+    p = _data(await client.call_tool("eg_project", {"name": "Logged"}))
+
+    result = _data(await client.call_tool("eg_log", {
+        "project_id": p["id"],
+        "action": "Implemented auth",
+        "result": "Working",
+        "next_step": "Add tests",
+    }))
+    assert result["_v"] == "1.0"
+    assert result["type"] == "progress"
+    assert result["action"] == "Implemented auth"
+
+
+async def test_eg_log_failure(client: Client):
+    p = _data(await client.call_tool("eg_project", {"name": "Failed"}))
+
+    result = _data(await client.call_tool("eg_log", {
+        "project_id": p["id"],
+        "action": "Deploy crashed",
+        "type": "failure",
+        "result": "OOM error",
+    }))
+    assert result["type"] == "failure"
+
+
+async def test_eg_log_empty_action(client: Client):
+    p = _data(await client.call_tool("eg_project", {"name": "X"}))
+    result = _data(await client.call_tool("eg_log", {
+        "project_id": p["id"],
+        "action": "",
+    }))
+    assert "error" in result
+
+
+# ── Experience Memory tool tests ─────────────────────────────
+
+
+async def test_eg_save(client: Client):
+    result = _data(await client.call_tool("eg_save", {
+        "content": "Use WAL mode for concurrent SQLite access",
+        "type": "solution",
+        "confidence": "high",
+        "tags": ["sqlite", "performance"],
+    }))
+    assert result["_v"] == "1.0"
+    assert result["type"] == "solution"
+    assert result["confidence"] == "high"
+    assert result["score"] == 1.0
+    assert "id" in result
+    assert result["decay_rate"] > 0
+
+
+async def test_eg_save_low_confidence(client: Client):
+    result = _data(await client.call_tool("eg_save", {
+        "content": "Maybe try Redis for caching",
+        "type": "workaround",
+        "confidence": "low",
+    }))
+    assert result["confidence"] == "low"
+    # Low confidence should decay 4x faster
+    assert result["decay_rate"] > 0
+
+
+async def test_eg_save_invalid_type(client: Client):
+    result = _data(await client.call_tool("eg_save", {
+        "content": "Something",
+        "type": "invalid_type",
+    }))
+    assert "error" in result
+
+
+async def test_eg_save_empty_content(client: Client):
+    result = _data(await client.call_tool("eg_save", {
+        "content": "",
+        "type": "solution",
+    }))
+    assert "error" in result
+
+
+async def test_eg_memories_search(client: Client):
+    await client.call_tool("eg_save", {
+        "content": "Always validate JWT tokens on the server side",
+        "type": "pattern",
+        "tags": ["auth"],
+    })
+    await client.call_tool("eg_save", {
+        "content": "SQLite WAL mode improves concurrency",
+        "type": "solution",
+        "tags": ["database"],
+    })
+
+    result = _data(await client.call_tool("eg_memories", {}))
+    assert result["_v"] == "1.0"
+    assert result["count"] == 2
+
+
+async def test_eg_memories_empty(client: Client):
+    result = _data(await client.call_tool("eg_memories", {}))
+    assert result["count"] == 0
+    assert result["experiences"] == []
+
+
+async def test_eg_memories_with_limit(client: Client):
+    for i in range(5):
+        await client.call_tool("eg_save", {
+            "content": f"Experience {i}",
+            "type": "solution",
+        })
+
+    result = _data(await client.call_tool("eg_memories", {"limit": 3}))
+    assert result["count"] == 3
+
+
+async def test_eg_memories_relevance_fields(client: Client):
+    await client.call_tool("eg_save", {
+        "content": "Fresh experience",
+        "type": "decision",
+    })
+
+    result = _data(await client.call_tool("eg_memories", {}))
+    exp = result["experiences"][0]
+    assert "relevance" in exp
+    assert exp["relevance"] > 0.9  # Just created, should be near 1.0
+
+
+async def test_eg_prune_nothing(client: Client):
+    # Fresh experience should not be pruned
+    await client.call_tool("eg_save", {
+        "content": "Keep me",
+        "type": "solution",
+    })
+
+    result = _data(await client.call_tool("eg_prune", {}))
+    assert result["_v"] == "1.0"
+    assert result["pruned_count"] == 0
+
+
+async def test_eg_prune_empty(client: Client):
+    result = _data(await client.call_tool("eg_prune", {}))
+    assert result["pruned_count"] == 0
+    assert result["pruned_ids"] == []
+
+
+# ── Idea tool tests ──────────────────────────────────────────
+
+
+async def test_eg_idea_create(client: Client):
+    result = _data(await client.call_tool("eg_idea", {
+        "title": "Build a CLI",
+        "category": "feature",
+        "score": 8.5,
+    }))
+    assert result["_v"] == "1.0"
+    assert result["title"] == "Build a CLI"
+    assert result["status"] == "draft"
+    assert result["category"] == "feature"
+    assert result["score"] == 8.5
+    assert "id" in result
+
+
+async def test_eg_idea_update(client: Client):
+    created = _data(await client.call_tool("eg_idea", {"title": "Original"}))
+
+    updated = _data(await client.call_tool("eg_idea", {
+        "title": "Updated Title",
+        "idea_id": created["id"],
+        "status": "evaluating",
+    }))
+    assert updated["title"] == "Updated Title"
+    assert updated["status"] == "evaluating"
+
+
+async def test_eg_idea_invalid_transition(client: Client):
+    created = _data(await client.call_tool("eg_idea", {"title": "Stuck"}))
+
+    # draft -> done is not valid (must go through evaluating, approved, implementing)
+    result = _data(await client.call_tool("eg_idea", {
+        "title": "Stuck",
+        "idea_id": created["id"],
+        "status": "done",
+    }))
+    assert "error" in result
+
+
+async def test_eg_idea_not_found(client: Client):
+    result = _data(await client.call_tool("eg_idea", {
+        "title": "Ghost",
+        "idea_id": "nonexistent",
+    }))
+    assert "error" in result
+
+
+async def test_eg_idea_empty_title(client: Client):
+    result = _data(await client.call_tool("eg_idea", {"title": ""}))
+    assert "error" in result
+
+
+async def test_eg_idea_with_link(client: Client):
+    # Create a node to link to
+    node = _data(await client.call_tool("eg_add", {
+        "name": "Auth System",
+        "type": "concept",
+    }))
+
+    result = _data(await client.call_tool("eg_idea", {
+        "title": "Improve Auth",
+        "link_to": node["id"],
+    }))
+    assert result["_v"] == "1.0"
+    assert result["title"] == "Improve Auth"
+    assert result["linked_to"] == node["id"]
+
+
+async def test_eg_idea_link_to_nonexistent_node(client: Client):
+    result = _data(await client.call_tool("eg_idea", {
+        "title": "Orphan Idea",
+        "link_to": "nonexistent",
+    }))
+    assert result["_v"] == "1.0"
+    assert result["title"] == "Orphan Idea"
+    assert result["linked_to"] is None
+    assert "link_error" in result
+
+
+async def test_eg_ideas_list(client: Client):
+    await client.call_tool("eg_idea", {"title": "Idea A", "category": "feature"})
+    await client.call_tool("eg_idea", {"title": "Idea B", "category": "bug"})
+
+    result = _data(await client.call_tool("eg_ideas", {}))
+    assert result["_v"] == "1.0"
+    assert result["count"] == 2
+
+
+async def test_eg_ideas_filter_by_status(client: Client):
+    created = _data(await client.call_tool("eg_idea", {"title": "Advancing"}))
+    await client.call_tool("eg_idea", {"title": "Static"})
+
+    # Advance first idea to evaluating
+    await client.call_tool("eg_idea", {
+        "title": "Advancing",
+        "idea_id": created["id"],
+        "status": "evaluating",
+    })
+
+    result = _data(await client.call_tool("eg_ideas", {"status": "evaluating"}))
+    assert result["count"] == 1
+    assert result["ideas"][0]["title"] == "Advancing"
+
+
+async def test_eg_ideas_filter_by_category(client: Client):
+    await client.call_tool("eg_idea", {"title": "Feature X", "category": "feature"})
+    await client.call_tool("eg_idea", {"title": "Bug Y", "category": "bug"})
+
+    result = _data(await client.call_tool("eg_ideas", {"category": "feature"}))
+    assert result["count"] == 1
+    assert result["ideas"][0]["title"] == "Feature X"
+
+
+async def test_eg_ideas_pagination(client: Client):
+    for i in range(8):
+        await client.call_tool("eg_idea", {"title": f"Idea {i}"})
+
+    result = _data(await client.call_tool("eg_ideas", {"limit": 3}))
+    assert result["count"] == 3
+
+
+async def test_eg_ideas_empty(client: Client):
+    result = _data(await client.call_tool("eg_ideas", {}))
+    assert result["count"] == 0
+    assert result["ideas"] == []
