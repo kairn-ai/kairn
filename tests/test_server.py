@@ -619,3 +619,140 @@ async def test_eg_ideas_empty(client: Client):
     result = _data(await client.call_tool("eg_ideas", {}))
     assert result["count"] == 0
     assert result["ideas"] == []
+
+
+# ── Resource tests ───────────────────────────────────────────
+
+
+async def test_list_resources(client: Client):
+    resources = await client.list_resources()
+    uris = {str(r.uri) for r in resources}
+    assert "eg://status" in uris
+    assert "eg://projects" in uris
+    assert "eg://memories" in uris
+    assert len(uris) == 3
+
+
+def _res(content) -> dict:
+    """Extract parsed JSON from resource read result (list of content items)."""
+    return json.loads(content[0].text if isinstance(content, list) else content)
+
+
+async def test_resource_status_empty(client: Client):
+    content = await client.read_resource("eg://status")
+    data = _res(content)
+    assert data["_v"] == "1.0"
+    assert "graph" in data
+    assert data["active_project"] is None
+
+
+async def test_resource_status_with_project(client: Client):
+    p = _data(await client.call_tool("eg_project", {"name": "Res Test"}))
+    await client.call_tool("eg_projects", {"set_active": p["id"]})
+
+    content = await client.read_resource("eg://status")
+    data = _res(content)
+    assert data["active_project"] is not None
+    assert data["active_project"]["name"] == "Res Test"
+
+
+async def test_resource_projects(client: Client):
+    p = _data(await client.call_tool("eg_project", {"name": "Listed"}))
+    await client.call_tool("eg_log", {
+        "project_id": p["id"],
+        "action": "Setup done",
+    })
+
+    content = await client.read_resource("eg://projects")
+    data = _res(content)
+    assert data["count"] == 1
+    assert data["projects"][0]["name"] == "Listed"
+    assert len(data["projects"][0]["recent_progress"]) == 1
+
+
+async def test_resource_projects_empty(client: Client):
+    content = await client.read_resource("eg://projects")
+    data = _res(content)
+    assert data["count"] == 0
+
+
+async def test_resource_memories(client: Client):
+    await client.call_tool("eg_save", {
+        "content": "Resource test memory",
+        "type": "solution",
+    })
+
+    content = await client.read_resource("eg://memories")
+    data = _res(content)
+    assert data["count"] == 1
+    assert "Resource test" in data["experiences"][0]["content"]
+
+
+async def test_resource_memories_empty(client: Client):
+    content = await client.read_resource("eg://memories")
+    data = _res(content)
+    assert data["count"] == 0
+
+
+# ── Prompt tests ─────────────────────────────────────────────
+
+
+async def test_list_prompts(client: Client):
+    prompts = await client.list_prompts()
+    names = {p.name for p in prompts}
+    assert "eg_bootup" in names
+    assert "eg_review" in names
+    assert len(names) == 2
+
+
+async def test_prompt_bootup_empty(client: Client):
+    result = await client.get_prompt("eg_bootup")
+    text = result.messages[0].content.text
+    assert "Engram Session Context" in text
+    assert "No active project" in text
+
+
+async def test_prompt_bootup_with_project(client: Client):
+    p = _data(await client.call_tool("eg_project", {"name": "Boot Project"}))
+    await client.call_tool("eg_projects", {"set_active": p["id"]})
+    await client.call_tool("eg_log", {
+        "project_id": p["id"],
+        "action": "Initial setup",
+    })
+
+    result = await client.get_prompt("eg_bootup")
+    text = result.messages[0].content.text
+    assert "Boot Project" in text
+    assert "Initial setup" in text
+
+
+async def test_prompt_review_empty(client: Client):
+    result = await client.get_prompt("eg_review")
+    text = result.messages[0].content.text
+    assert "Session Review" in text
+    assert "No active project" in text
+
+
+async def test_prompt_review_with_progress(client: Client):
+    p = _data(await client.call_tool("eg_project", {"name": "Review Project"}))
+    await client.call_tool("eg_projects", {"set_active": p["id"]})
+    await client.call_tool("eg_log", {
+        "project_id": p["id"],
+        "action": "DB migration failed",
+        "type": "failure",
+        "result": "Schema mismatch",
+    })
+    # Log progress last so most recent entry has next_step
+    await client.call_tool("eg_log", {
+        "project_id": p["id"],
+        "action": "Added auth module",
+        "result": "Working",
+        "next_step": "Add tests",
+    })
+
+    result = await client.get_prompt("eg_review")
+    text = result.messages[0].content.text
+    assert "Review Project" in text
+    assert "Added auth module" in text
+    assert "DB migration failed" in text
+    assert "Add tests" in text

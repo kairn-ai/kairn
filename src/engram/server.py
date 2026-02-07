@@ -1,4 +1,4 @@
-"""FastMCP server — Gate 2: 13 tools (5 graph + 3 project + 3 experience + 2 ideas)."""
+"""FastMCP server — Gate 2: 13 tools, 3 resources, 2 prompts."""
 
 from __future__ import annotations
 
@@ -678,5 +678,174 @@ def create_server(db_path: str) -> FastMCP:
             for i in ideas_list
         ]
         return _json({"_v": "1.0", "count": len(items), "ideas": items})
+
+    # ── Resources (3) ──────────────────────────────────────────
+
+    @mcp.resource("eg://status")
+    async def eg_resource_status() -> str:
+        """Graph and system overview."""
+        s = await _init()
+        stats = await s["graph"].stats()
+        projects = await s["memory"].list_projects(active_only=True)
+        active = projects[0] if projects else None
+        return _json({
+            "_v": "1.0",
+            "graph": stats,
+            "active_project": {
+                "id": active.id,
+                "name": active.name,
+                "phase": active.phase,
+            } if active else None,
+        })
+
+    @mcp.resource("eg://projects")
+    async def eg_resource_projects() -> str:
+        """All projects with progress summaries."""
+        s = await _init()
+        mem = s["memory"]
+        projects = await mem.list_projects()
+        items = []
+        for p in projects:
+            progress = await mem.get_progress(p.id, limit=3)
+            items.append({
+                "id": p.id,
+                "name": p.name,
+                "phase": p.phase,
+                "active": p.active,
+                "goals": p.goals,
+                "recent_progress": [
+                    {"action": e.action, "type": e.type}
+                    for e in progress
+                ],
+            })
+        return _json({"_v": "1.0", "count": len(items), "projects": items})
+
+    @mcp.resource("eg://memories")
+    async def eg_resource_memories() -> str:
+        """Recent high-relevance experiences."""
+        s = await _init()
+        experiences = await s["experience"].search(
+            min_relevance=0.1,
+            limit=20,
+        )
+        items = [
+            {
+                "id": e.id,
+                "type": e.type,
+                "content": e.content[:200],
+                "confidence": e.confidence,
+                "relevance": round(e.relevance(), 4),
+            }
+            for e in experiences
+        ]
+        return _json({"_v": "1.0", "count": len(items), "experiences": items})
+
+    # ── Prompts (2) ──────────────────────────────────────────
+
+    @mcp.prompt()
+    async def eg_bootup() -> str:
+        """Session start — load active project, recent progress, and top memories."""
+        s = await _init()
+        mem = s["memory"]
+
+        # Active project
+        projects = await mem.list_projects(active_only=True)
+        active = projects[0] if projects else None
+
+        # Recent progress
+        progress_lines = []
+        if active:
+            entries = await mem.get_progress(active.id, limit=5)
+            for e in entries:
+                prefix = "FAIL" if e.type == "failure" else "OK"
+                progress_lines.append(f"  [{prefix}] {e.action}")
+
+        # Top experiences
+        experiences = await s["experience"].search(min_relevance=0.3, limit=5)
+        memory_lines = [
+            f"  [{e.type}] {e.content[:80]}"
+            for e in experiences
+        ]
+
+        # Build context
+        parts = ["# Engram Session Context\n"]
+
+        if active:
+            parts.append(f"## Active Project: {active.name}")
+            parts.append(f"Phase: {active.phase}")
+            if active.goals:
+                parts.append("Goals: " + ", ".join(active.goals))
+            if progress_lines:
+                parts.append("\nRecent progress:")
+                parts.extend(progress_lines)
+        else:
+            parts.append("No active project. Use eg_project to create one.")
+
+        if memory_lines:
+            parts.append("\n## Key Memories")
+            parts.extend(memory_lines)
+
+        # Ideas in progress
+        ideas = await s["ideas"].list_ideas(status="implementing", limit=3)
+        if ideas:
+            parts.append("\n## Ideas in Progress")
+            for idea in ideas:
+                parts.append(f"  - {idea.title} ({idea.status})")
+
+        return "\n".join(parts)
+
+    @mcp.prompt()
+    async def eg_review() -> str:
+        """Session review — summarize what happened and suggest next steps."""
+        s = await _init()
+        mem = s["memory"]
+
+        projects = await mem.list_projects(active_only=True)
+        active = projects[0] if projects else None
+
+        parts = ["# Session Review\n"]
+
+        if active:
+            parts.append(f"## Project: {active.name} ({active.phase})")
+
+            # All progress this session (recent entries)
+            progress = await mem.get_progress(active.id, limit=10)
+            successes = [e for e in progress if e.type == "progress"]
+            failures = [e for e in progress if e.type == "failure"]
+
+            if successes:
+                parts.append(f"\n### Completed ({len(successes)})")
+                for e in successes:
+                    parts.append(f"  - {e.action}")
+                    if e.result:
+                        parts.append(f"    Result: {e.result}")
+
+            if failures:
+                parts.append(f"\n### Issues ({len(failures)})")
+                for e in failures:
+                    parts.append(f"  - {e.action}")
+                    if e.result:
+                        parts.append(f"    Error: {e.result}")
+                    if e.next_step:
+                        parts.append(f"    Next: {e.next_step}")
+
+            # Suggest next step from most recent entry
+            if progress and progress[0].next_step:
+                parts.append(f"\n## Suggested Next Step")
+                parts.append(f"{progress[0].next_step}")
+        else:
+            parts.append("No active project to review.")
+
+        # Experience stats
+        all_exp = await s["experience"].search(limit=50)
+        if all_exp:
+            by_type: dict[str, int] = {}
+            for e in all_exp:
+                by_type[e.type] = by_type.get(e.type, 0) + 1
+            parts.append("\n## Memory Stats")
+            for t, count in sorted(by_type.items()):
+                parts.append(f"  {t}: {count}")
+
+        return "\n".join(parts)
 
     return mcp
