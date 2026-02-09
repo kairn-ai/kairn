@@ -1,11 +1,11 @@
-"""FastMCP server — Gate 3: 18 tools, 3 resources, 2 prompts."""
+"""FastMCP server — 5 consolidated tools, 3 resources, 2 prompts."""
 
 from __future__ import annotations
 
 import asyncio
 import json
 import logging
-from typing import Annotated, Any
+from typing import Annotated, Any, Literal
 
 from fastmcp import FastMCP
 from pydantic import Field
@@ -26,8 +26,19 @@ def _json(data: dict[str, Any]) -> str:
     return json.dumps(data, default=str)
 
 
+def _ok(data: dict[str, Any]) -> str:
+    """Return a versioned JSON success response."""
+    data["_v"] = "1.0"
+    return _json(data)
+
+
+def _err(msg: str) -> str:
+    """Return a versioned JSON error response."""
+    return _json({"_v": "1.0", "error": msg})
+
+
 def create_server(db_path: str) -> FastMCP:
-    """Create FastMCP server: 18 tools (5 graph + 3 project + 3 exp + 2 ideas + 5 intel)."""
+    """Create FastMCP server with 5 consolidated tools."""
     mcp = FastMCP("kairn", version="0.1.0")
 
     state: dict[str, Any] = {}
@@ -71,274 +82,239 @@ def create_server(db_path: str) -> FastMCP:
                 )
         return state
 
+    # ── kn_graph ──────────────────────────────────────────────
+
     @mcp.tool()
-    async def kn_add(
-        name: Annotated[str, Field(description="Node name")],
-        type: Annotated[
-            str,
-            Field(
-                description="Node type (concept, pattern, etc.)",
-            ),
+    async def kn_graph(
+        action: Annotated[
+            Literal["add", "connect", "query", "remove", "status"],
+            Field(description="add | connect | query | remove | status"),
         ],
+        name: Annotated[
+            str | None,
+            Field(description="Node name (add)"),
+        ] = None,
+        type: Annotated[
+            str | None,
+            Field(description="Node type, e.g. concept, pattern (add)"),
+        ] = None,
         namespace: Annotated[
             str,
-            Field(
-                description="Namespace",
-            ),
+            Field(description="Namespace (add, default: knowledge)"),
         ] = "knowledge",
         description: Annotated[
             str | None,
-            Field(
-                description="Node description",
-            ),
+            Field(description="Node description (add)"),
         ] = None,
         tags: Annotated[
             list[str] | None,
-            Field(
-                description="Tags for categorization",
-            ),
-        ] = None,
-    ) -> str:
-        """Add node to knowledge graph. Auto-links via FTS5."""
-        if not name or not name.strip():
-            return _json({"_v": "1.0", "error": "name is required"})
-        if not type or not type.strip():
-            return _json({"_v": "1.0", "error": "type is required"})
-
-        s = await _init()
-        node = await s["graph"].add_node(
-            name=name.strip(),
-            type=type.strip(),
-            namespace=namespace,
-            description=description,
-            tags=tags,
-        )
-        await s["router"].update_routes_for_node(
-            node.id,
-            node.name,
-            node.description,
-        )
-        result = node.to_response(detail="full")
-        result["_v"] = "1.0"
-        return _json(result)
-
-    @mcp.tool()
-    async def kn_connect(
-        source_id: Annotated[str, Field(description="Source node ID")],
-        target_id: Annotated[str, Field(description="Target node ID")],
-        edge_type: Annotated[str, Field(description="Relationship type")],
-        weight: Annotated[
-            float,
-            Field(
-                description="Edge weight 0.0-1.0",
-                ge=0.0,
-                le=1.0,
-            ),
-        ] = 1.0,
-    ) -> str:
-        """Create typed, weighted edge between nodes."""
-        if not source_id or not source_id.strip():
-            return _json({"_v": "1.0", "error": "source_id is required"})
-        if not target_id or not target_id.strip():
-            return _json({"_v": "1.0", "error": "target_id is required"})
-        if not edge_type or not edge_type.strip():
-            return _json({"_v": "1.0", "error": "edge_type is required"})
-
-        s = await _init()
-        try:
-            edge = await s["graph"].connect(
-                source_id,
-                target_id,
-                edge_type,
-                weight=weight,
-            )
-            result = edge.to_storage()
-            result["_v"] = "1.0"
-            return _json(result)
-        except ValueError as e:
-            return _json({"_v": "1.0", "error": str(e)})
-
-    @mcp.tool()
-    async def kn_query(
-        text: Annotated[
-            str | None,
-            Field(
-                description="Full-text search query",
-            ),
-        ] = None,
-        namespace: Annotated[
-            str | None,
-            Field(
-                description="Filter by namespace",
-            ),
-        ] = None,
-        node_type: Annotated[
-            str | None,
-            Field(
-                description="Filter by type",
-            ),
-        ] = None,
-        tags: Annotated[
-            list[str] | None,
-            Field(
-                description="Filter by tags",
-            ),
-        ] = None,
-        detail: Annotated[
-            str,
-            Field(
-                description="summary or full",
-            ),
-        ] = "summary",
-        limit: Annotated[
-            int,
-            Field(
-                description="Max results",
-                ge=1,
-                le=50,
-            ),
-        ] = 10,
-        offset: Annotated[
-            int,
-            Field(
-                description="Pagination offset",
-                ge=0,
-            ),
-        ] = 0,
-    ) -> str:
-        """Search nodes by text, type, tags, or namespace."""
-        s = await _init()
-        nodes = await s["graph"].query(
-            text=text,
-            namespace=namespace,
-            node_type=node_type,
-            tags=tags,
-            limit=limit,
-            offset=offset,
-        )
-        items = [n.to_response(detail=detail) for n in nodes]
-        return _json(
-            {
-                "_v": "1.0",
-                "count": len(items),
-                "nodes": items,
-            }
-        )
-
-    @mcp.tool()
-    async def kn_remove(
-        node_id: Annotated[
-            str | None,
-            Field(
-                description="Node ID to remove",
-            ),
+            Field(description="Tags (add, query)"),
         ] = None,
         source_id: Annotated[
             str | None,
-            Field(
-                description="Edge source ID",
-            ),
+            Field(description="Source node ID (connect, remove)"),
         ] = None,
         target_id: Annotated[
             str | None,
-            Field(
-                description="Edge target ID",
-            ),
+            Field(description="Target node ID (connect, remove)"),
         ] = None,
         edge_type: Annotated[
             str | None,
-            Field(
-                description="Edge type",
-            ),
+            Field(description="Relationship type (connect, remove)"),
         ] = None,
+        weight: Annotated[
+            float,
+            Field(description="Edge weight 0.0-1.0 (connect)", ge=0.0, le=1.0),
+        ] = 1.0,
+        node_id: Annotated[
+            str | None,
+            Field(description="Node ID to remove (remove)"),
+        ] = None,
+        text: Annotated[
+            str | None,
+            Field(description="Full-text search query (query)"),
+        ] = None,
+        node_type: Annotated[
+            str | None,
+            Field(description="Filter by node type (query)"),
+        ] = None,
+        detail: Annotated[
+            str,
+            Field(description="summary or full (query, default: summary)"),
+        ] = "summary",
+        limit: Annotated[
+            int,
+            Field(description="Max results 1-50 (query)", ge=1, le=50),
+        ] = 10,
+        offset: Annotated[
+            int,
+            Field(description="Pagination offset (query)", ge=0),
+        ] = 0,
     ) -> str:
-        """Soft-delete node or edge. Supports undo."""
+        """Direct operations on the knowledge graph: create, connect, search, and remove nodes and edges. Use for structured knowledge that should persist permanently. For storing knowledge learned during a conversation, prefer kn_intel (action="learn") which automatically decides storage strategy.
+
+Actions: add (create node), connect (create edge), query (search nodes), remove (soft-delete node or edge), status (system health)."""  # noqa: E501
         s = await _init()
 
-        if node_id and node_id.strip():
-            ok = await s["graph"].remove_node(node_id)
-            if ok:
-                return _json(
-                    {
-                        "_v": "1.0",
-                        "removed": "node",
-                        "id": node_id,
-                    }
-                )
-            return _json(
-                {
-                    "_v": "1.0",
-                    "error": f"Node not found: {node_id}",
-                }
+        if action == "add":
+            if not name or not name.strip():
+                return _err("name is required for add")
+            if not type or not type.strip():
+                return _err("type is required for add")
+            node = await s["graph"].add_node(
+                name=name.strip(),
+                type=type.strip(),
+                namespace=namespace,
+                description=description,
+                tags=tags,
             )
+            await s["router"].update_routes_for_node(
+                node.id, node.name, node.description,
+            )
+            return _ok(node.to_response(detail="full"))
 
-        if source_id and target_id and edge_type:
-            ok = await s["graph"].disconnect(
-                source_id,
-                target_id,
-                edge_type,
+        if action == "connect":
+            if not source_id or not source_id.strip():
+                return _err("source_id is required for connect")
+            if not target_id or not target_id.strip():
+                return _err("target_id is required for connect")
+            if not edge_type or not edge_type.strip():
+                return _err("edge_type is required for connect")
+            try:
+                edge = await s["graph"].connect(
+                    source_id, target_id, edge_type, weight=weight,
+                )
+                return _ok(edge.to_storage())
+            except ValueError as e:
+                return _err(str(e))
+
+        if action == "query":
+            nodes = await s["graph"].query(
+                text=text,
+                namespace=namespace if namespace != "knowledge" else None,
+                node_type=node_type,
+                tags=tags,
+                limit=limit,
+                offset=offset,
             )
-            if ok:
-                return _json(
-                    {
-                        "_v": "1.0",
+            items = [n.to_response(detail=detail) for n in nodes]
+            return _ok({"count": len(items), "nodes": items})
+
+        if action == "remove":
+            if node_id and node_id.strip():
+                ok = await s["graph"].remove_node(node_id)
+                if ok:
+                    return _ok({"removed": "node", "id": node_id})
+                return _err(f"Node not found: {node_id}")
+
+            if source_id and target_id and edge_type:
+                ok = await s["graph"].disconnect(source_id, target_id, edge_type)
+                if ok:
+                    return _ok({
                         "removed": "edge",
                         "source_id": source_id,
                         "target_id": target_id,
-                    }
-                )
-            return _json({"_v": "1.0", "error": "Edge not found"})
+                    })
+                return _err("Edge not found")
 
-        return _json(
-            {
-                "_v": "1.0",
-                "error": "Provide node_id or (source_id + target_id + edge_type)",
-            }
-        )
+            return _err("Provide node_id or (source_id + target_id + edge_type)")
 
-    @mcp.tool()
-    async def kn_status() -> str:
-        """Graph stats, health, and system overview."""
-        s = await _init()
-        stats = await s["graph"].stats()
-        stats["_v"] = "1.0"
-        return _json(stats)
+        if action == "status":
+            stats = await s["graph"].stats()
+            return _ok(stats)
 
-    # ── Project Memory tools (3) ───────────────────────────────
+        return _err(f"Unknown action: {action}")
+
+    # ── kn_project ────────────────────────────────────────────
 
     @mcp.tool()
     async def kn_project(
-        name: Annotated[str, Field(description="Project name")],
+        action: Annotated[
+            Literal["create", "update", "list", "log"],
+            Field(description="create | update | list | log"),
+        ],
+        name: Annotated[
+            str | None,
+            Field(description="Project name (create, update)"),
+        ] = None,
         project_id: Annotated[
             str | None,
-            Field(description="Project ID (omit to create new)"),
+            Field(description="Existing project ID (update, log)"),
         ] = None,
         phase: Annotated[
             str | None,
-            Field(description="Phase: planning|active|paused|done"),
+            Field(description="Phase: planning|active|paused|done (update)"),
         ] = None,
         goals: Annotated[
             list[str] | None,
-            Field(description="Project goals"),
+            Field(description="Project goals (create, update)"),
         ] = None,
         stakeholders: Annotated[
             list[str] | None,
-            Field(description="Stakeholders"),
+            Field(description="Stakeholders (create, update)"),
         ] = None,
         success_metrics: Annotated[
             list[str] | None,
-            Field(description="Success metrics / KPIs"),
+            Field(description="Success metrics / KPIs (create, update)"),
+        ] = None,
+        active_only: Annotated[
+            bool,
+            Field(description="Only show active projects (list)"),
+        ] = False,
+        set_active: Annotated[
+            str | None,
+            Field(description="Project ID to set as active (list)"),
+        ] = None,
+        action_text: Annotated[
+            str | None,
+            Field(description="What was done or what failed (log)"),
+        ] = None,
+        type: Annotated[
+            str,
+            Field(description="progress or failure (log, default: progress)"),
+        ] = "progress",
+        result: Annotated[
+            str | None,
+            Field(description="Outcome or error message (log)"),
+        ] = None,
+        next_step: Annotated[
+            str | None,
+            Field(description="Recommended next step (log)"),
         ] = None,
     ) -> str:
-        """Create or update project (upsert)."""
-        if not name or not name.strip():
-            return _json({"_v": "1.0", "error": "name is required"})
+        """Manage projects and log session activity. Projects track goals, phases, and progress over time. Use action="log" to record what was accomplished or failed — this builds the history that kn_bootup and kn_review use for continuity across sessions.
 
+Actions: create (new project), update (modify existing), list (show projects), log (record progress/failure entry)."""  # noqa: E501
         s = await _init()
         mem = s["memory"]
 
-        if project_id:
-            # Update existing
+        if action == "create":
+            if not name or not name.strip():
+                return _err("name is required for create")
+            if phase is not None:
+                return _err("phase cannot be set on create (starts at planning)")
+            try:
+                project = await mem.create_project(
+                    name=name.strip(),
+                    goals=goals,
+                    stakeholders=stakeholders,
+                    success_metrics=success_metrics,
+                )
+            except ValueError as e:
+                return _err(str(e))
+            return _ok({
+                "id": project.id,
+                "name": project.name,
+                "phase": project.phase,
+                "active": project.active,
+                "goals": project.goals,
+            })
+
+        if action == "update":
+            if not project_id:
+                return _err("project_id is required for update")
+            if not name or not name.strip():
+                return _err("name is required for update")
             updates: dict[str, Any] = {"name": name.strip()}
             if phase is not None:
                 updates["phase"] = phase
@@ -351,276 +327,247 @@ def create_server(db_path: str) -> FastMCP:
             try:
                 project = await mem.update_project(project_id, **updates)
             except ValueError as e:
-                return _json({"_v": "1.0", "error": str(e)})
+                return _err(str(e))
             if not project:
-                return _json({"_v": "1.0", "error": f"Project not found: {project_id}"})
-        else:
-            # Create new — phase always starts at "planning"
-            if phase is not None:
-                return _json(
-                    {
-                        "_v": "1.0",
-                        "error": "phase cannot be set on create (starts at planning)",
-                    }
+                return _err(f"Project not found: {project_id}")
+            return _ok({
+                "id": project.id,
+                "name": project.name,
+                "phase": project.phase,
+                "active": project.active,
+                "goals": project.goals,
+            })
+
+        if action == "list":
+            if set_active:
+                ok = await mem.set_active_project(set_active)
+                if not ok:
+                    return _err(f"Project not found: {set_active}")
+
+            projects = await mem.list_projects(active_only=active_only)
+            items = [
+                {
+                    "id": p.id,
+                    "name": p.name,
+                    "phase": p.phase,
+                    "active": p.active,
+                }
+                for p in projects
+            ]
+            return _ok({"count": len(items), "projects": items})
+
+        if action == "log":
+            if not project_id or not project_id.strip():
+                return _err("project_id is required for log")
+            if not action_text or not action_text.strip():
+                return _err("action_text is required for log")
+
+            if type == "failure":
+                entry = await mem.log_failure(
+                    project_id=project_id,
+                    action=action_text,
+                    result=result,
+                    next_step=next_step,
                 )
-            try:
-                project = await mem.create_project(
-                    name=name.strip(),
-                    goals=goals,
-                    stakeholders=stakeholders,
-                    success_metrics=success_metrics,
+            else:
+                entry = await mem.log_progress(
+                    project_id=project_id,
+                    action=action_text,
+                    result=result,
+                    next_step=next_step,
                 )
-            except ValueError as e:
-                return _json({"_v": "1.0", "error": str(e)})
-
-        result = {
-            "_v": "1.0",
-            "id": project.id,
-            "name": project.name,
-            "phase": project.phase,
-            "active": project.active,
-            "goals": project.goals,
-        }
-        return _json(result)
-
-    @mcp.tool()
-    async def kn_projects(
-        active_only: Annotated[
-            bool,
-            Field(description="Only show active projects"),
-        ] = False,
-        set_active: Annotated[
-            str | None,
-            Field(description="Project ID to set as active"),
-        ] = None,
-    ) -> str:
-        """List projects and switch active."""
-        s = await _init()
-        mem = s["memory"]
-
-        if set_active:
-            ok = await mem.set_active_project(set_active)
-            if not ok:
-                return _json({"_v": "1.0", "error": f"Project not found: {set_active}"})
-
-        projects = await mem.list_projects(active_only=active_only)
-        items = [
-            {
-                "id": p.id,
-                "name": p.name,
-                "phase": p.phase,
-                "active": p.active,
-            }
-            for p in projects
-        ]
-        return _json({"_v": "1.0", "count": len(items), "projects": items})
-
-    @mcp.tool()
-    async def kn_log(
-        project_id: Annotated[str, Field(description="Project ID")],
-        action: Annotated[str, Field(description="What was done or what failed")],
-        type: Annotated[
-            str,
-            Field(description="progress or failure"),
-        ] = "progress",
-        result: Annotated[
-            str | None,
-            Field(description="Outcome or error message"),
-        ] = None,
-        next_step: Annotated[
-            str | None,
-            Field(description="Recommended next step"),
-        ] = None,
-    ) -> str:
-        """Log progress or failure entry."""
-        if not project_id or not project_id.strip():
-            return _json({"_v": "1.0", "error": "project_id is required"})
-        if not action or not action.strip():
-            return _json({"_v": "1.0", "error": "action is required"})
-
-        s = await _init()
-        mem = s["memory"]
-
-        if type == "failure":
-            entry = await mem.log_failure(
-                project_id=project_id,
-                action=action,
-                result=result,
-                next_step=next_step,
-            )
-        else:
-            entry = await mem.log_progress(
-                project_id=project_id,
-                action=action,
-                result=result,
-                next_step=next_step,
-            )
-
-        return _json(
-            {
-                "_v": "1.0",
+            return _ok({
                 "id": entry.id,
                 "project_id": entry.project_id,
                 "type": entry.type,
                 "action": entry.action,
-            }
-        )
+            })
 
-    # ── Experience Memory tools (3) ──────────────────────────
+        return _err(f"Unknown action: {action}")
+
+    # ── kn_experience ─────────────────────────────────────────
 
     @mcp.tool()
-    async def kn_save(
-        content: Annotated[str, Field(description="What was learned/discovered")],
-        type: Annotated[
-            str,
-            Field(description="solution|pattern|decision|workaround|gotcha"),
+    async def kn_experience(
+        action: Annotated[
+            Literal["save", "search", "prune"],
+            Field(description="save | search | prune"),
         ],
+        content: Annotated[
+            str | None,
+            Field(description="What was learned or discovered (save)"),
+        ] = None,
+        type: Annotated[
+            str | None,
+            Field(description="solution|pattern|decision|workaround|gotcha (save, search)"),
+        ] = None,
         context: Annotated[
             str | None,
-            Field(description="Situation when this was learned"),
+            Field(description="Situation when this was learned (save)"),
         ] = None,
         confidence: Annotated[
             str,
-            Field(description="high|medium|low — affects decay rate"),
+            Field(description="high|medium|low — lower decays faster (save, default: high)"),
         ] = "high",
         tags: Annotated[
             list[str] | None,
-            Field(description="Tags for categorization"),
+            Field(description="Tags for categorization (save)"),
         ] = None,
+        text: Annotated[
+            str | None,
+            Field(description="Full-text search query (search)"),
+        ] = None,
+        min_relevance: Annotated[
+            float,
+            Field(description="Minimum relevance 0.0-1.0 (search)", ge=0.0, le=1.0),
+        ] = 0.0,
+        limit: Annotated[
+            int,
+            Field(description="Max results 1-50 (search)", ge=1, le=50),
+        ] = 10,
+        offset: Annotated[
+            int,
+            Field(description="Pagination offset (search)", ge=0),
+        ] = 0,
+        threshold: Annotated[
+            float,
+            Field(description="Remove below this relevance (prune, default: 0.01)", ge=0.0, le=1.0),
+        ] = 0.01,
     ) -> str:
-        """Save experience with configurable decay."""
-        if not content or not content.strip():
-            return _json({"_v": "1.0", "error": "content is required"})
+        """Store and retrieve experiential memories that decay over time. Unlike permanent graph nodes, experiences lose relevance based on type and confidence — workarounds fade fastest, patterns persist longest. For the common case of saving something learned in conversation, prefer kn_intel (action="learn") which chooses storage automatically.
 
+Actions: save (store experience), search (find past experiences by relevance), prune (remove decayed experiences)."""  # noqa: E501
         s = await _init()
-        try:
-            exp = await s["experience"].save(
-                content=content.strip(),
-                type=type,
-                context=context,
-                confidence=confidence,
-                tags=tags,
-            )
-        except ValueError as e:
-            return _json({"_v": "1.0", "error": str(e)})
+        exp_engine = s["experience"]
 
-        return _json(
-            {
-                "_v": "1.0",
+        if action == "save":
+            if not content or not content.strip():
+                return _err("content is required for save")
+            if not type:
+                return _err("type is required for save")
+            try:
+                exp = await exp_engine.save(
+                    content=content.strip(),
+                    type=type,
+                    context=context,
+                    confidence=confidence,
+                    tags=tags,
+                )
+            except ValueError as e:
+                return _err(str(e))
+            return _ok({
                 "id": exp.id,
                 "type": exp.type,
                 "confidence": exp.confidence,
                 "decay_rate": round(exp.decay_rate, 6),
                 "score": exp.score,
-            }
-        )
+            })
 
-    @mcp.tool()
-    async def kn_memories(
-        text: Annotated[
-            str | None,
-            Field(description="Full-text search query"),
-        ] = None,
-        type: Annotated[
-            str | None,
-            Field(description="Filter by experience type"),
-        ] = None,
-        min_relevance: Annotated[
-            float,
-            Field(
-                description="Minimum relevance 0.0-1.0",
-                ge=0.0,
-                le=1.0,
-            ),
-        ] = 0.0,
-        limit: Annotated[
-            int,
-            Field(description="Max results", ge=1, le=50),
-        ] = 10,
-        offset: Annotated[
-            int,
-            Field(description="Pagination offset", ge=0),
-        ] = 0,
-    ) -> str:
-        """Decay-aware experience search."""
-        s = await _init()
-        experiences = await s["experience"].search(
-            text=text,
-            exp_type=type,
-            min_relevance=min_relevance,
-            limit=limit,
-            offset=offset,
-        )
-        items = [
-            {
-                "id": e.id,
-                "type": e.type,
-                "content": e.content,
-                "confidence": e.confidence,
-                "relevance": round(e.relevance(), 4),
-                "tags": e.tags,
-            }
-            for e in experiences
-        ]
-        return _json({"_v": "1.0", "count": len(items), "experiences": items})
+        if action == "search":
+            experiences = await exp_engine.search(
+                text=text,
+                exp_type=type,
+                min_relevance=min_relevance,
+                limit=limit,
+                offset=offset,
+            )
+            items = [
+                {
+                    "id": e.id,
+                    "type": e.type,
+                    "content": e.content,
+                    "confidence": e.confidence,
+                    "relevance": round(e.relevance(), 4),
+                    "tags": e.tags,
+                }
+                for e in experiences
+            ]
+            return _ok({"count": len(items), "experiences": items})
 
-    @mcp.tool()
-    async def kn_prune(
-        threshold: Annotated[
-            float,
-            Field(
-                description="Remove experiences below this relevance",
-                ge=0.0,
-                le=1.0,
-            ),
-        ] = 0.01,
-    ) -> str:
-        """Remove expired experiences (archive first)."""
-        s = await _init()
-        pruned = await s["experience"].prune(threshold=threshold)
-        return _json(
-            {
-                "_v": "1.0",
-                "pruned_count": len(pruned),
-                "pruned_ids": pruned,
-            }
-        )
+        if action == "prune":
+            pruned = await exp_engine.prune(threshold=threshold)
+            return _ok({"pruned_count": len(pruned), "pruned_ids": pruned})
 
-    # ── Idea tools (2) ───────────────────────────────────────
+        return _err(f"Unknown action: {action}")
+
+    # ── kn_idea ───────────────────────────────────────────────
 
     @mcp.tool()
     async def kn_idea(
-        title: Annotated[str, Field(description="Idea title")],
+        action: Annotated[
+            Literal["create", "update", "list"],
+            Field(description="create | update | list"),
+        ],
+        title: Annotated[
+            str | None,
+            Field(description="Idea title (create, update)"),
+        ] = None,
         idea_id: Annotated[
             str | None,
-            Field(description="Idea ID (omit to create new)"),
+            Field(description="Existing idea ID (update)"),
         ] = None,
         category: Annotated[
             str | None,
-            Field(description="Category classification"),
+            Field(description="Category classification (create, update, list)"),
         ] = None,
         score: Annotated[
             float | None,
-            Field(description="Numerical score"),
+            Field(description="Numerical score (create, update)"),
         ] = None,
         status: Annotated[
             str | None,
-            Field(description="Status: draft|evaluating|approved|implementing|done|archived"),
+            Field(description="draft|evaluating|approved|implementing|done|archived (update, list)"),
         ] = None,
         link_to: Annotated[
             str | None,
-            Field(description="Node ID to link this idea to"),
+            Field(description="Node ID to link this idea to (create, update)"),
         ] = None,
+        limit: Annotated[
+            int,
+            Field(description="Max results 1-50 (list)", ge=1, le=50),
+        ] = 10,
+        offset: Annotated[
+            int,
+            Field(description="Pagination offset (list)", ge=0),
+        ] = 0,
     ) -> str:
-        """Create or update idea with graph links."""
-        if not title or not title.strip():
-            return _json({"_v": "1.0", "error": "title is required"})
+        """Capture and track ideas through a lifecycle: draft, evaluating, approved, implementing, done, archived. Ideas can be scored, categorized, and linked to knowledge graph nodes.
 
+Actions: create (new idea), update (modify existing), list (filter ideas)."""  # noqa: E501
         s = await _init()
         ideas_engine = s["ideas"]
 
-        if idea_id:
-            # Update existing
+        if action == "create":
+            if not title or not title.strip():
+                return _err("title is required for create")
+            try:
+                idea = await ideas_engine.create(
+                    title=title.strip(),
+                    category=category,
+                    score=score,
+                )
+            except ValueError as e:
+                return _err(str(e))
+
+            result_data: dict[str, Any] = {
+                "id": idea.id,
+                "title": idea.title,
+                "status": idea.status,
+                "category": idea.category,
+                "score": idea.score,
+            }
+            if link_to:
+                edge = await ideas_engine.link_to_node(idea.id, link_to)
+                result_data["linked_to"] = link_to if edge else None
+                if not edge:
+                    result_data["link_error"] = f"Node not found: {link_to}"
+            return _ok(result_data)
+
+        if action == "update":
+            if not idea_id:
+                return _err("idea_id is required for update")
+            if not title or not title.strip():
+                return _err("title is required for update")
             updates: dict[str, Any] = {"title": title.strip()}
             if category is not None:
                 updates["category"] = category
@@ -631,230 +578,176 @@ def create_server(db_path: str) -> FastMCP:
             try:
                 idea = await ideas_engine.update(idea_id, **updates)
             except ValueError as e:
-                return _json({"_v": "1.0", "error": str(e)})
+                return _err(str(e))
             if not idea:
-                return _json({"_v": "1.0", "error": f"Idea not found: {idea_id}"})
-        else:
-            # Create new
-            try:
-                idea = await ideas_engine.create(
-                    title=title.strip(),
-                    category=category,
-                    score=score,
-                )
-            except ValueError as e:
-                return _json({"_v": "1.0", "error": str(e)})
+                return _err(f"Idea not found: {idea_id}")
 
-        result: dict[str, Any] = {
-            "_v": "1.0",
-            "id": idea.id,
-            "title": idea.title,
-            "status": idea.status,
-            "category": idea.category,
-            "score": idea.score,
-        }
-
-        # Optional graph link
-        if link_to:
-            edge = await ideas_engine.link_to_node(idea.id, link_to)
-            result["linked_to"] = link_to if edge else None
-            if not edge:
-                result["link_error"] = f"Node not found: {link_to}"
-
-        return _json(result)
-
-    @mcp.tool()
-    async def kn_ideas(
-        status: Annotated[
-            str | None,
-            Field(description="Filter by status"),
-        ] = None,
-        category: Annotated[
-            str | None,
-            Field(description="Filter by category"),
-        ] = None,
-        limit: Annotated[
-            int,
-            Field(description="Max results", ge=1, le=50),
-        ] = 10,
-        offset: Annotated[
-            int,
-            Field(description="Pagination offset", ge=0),
-        ] = 0,
-    ) -> str:
-        """List and filter ideas by status/score."""
-        s = await _init()
-        ideas_list = await s["ideas"].list_ideas(
-            status=status,
-            category=category,
-            limit=limit,
-            offset=offset,
-        )
-        items = [
-            {
-                "id": i.id,
-                "title": i.title,
-                "status": i.status,
-                "category": i.category,
-                "score": i.score,
+            result_data = {
+                "id": idea.id,
+                "title": idea.title,
+                "status": idea.status,
+                "category": idea.category,
+                "score": idea.score,
             }
-            for i in ideas_list
-        ]
-        return _json({"_v": "1.0", "count": len(items), "ideas": items})
+            if link_to:
+                edge = await ideas_engine.link_to_node(idea.id, link_to)
+                result_data["linked_to"] = link_to if edge else None
+                if not edge:
+                    result_data["link_error"] = f"Node not found: {link_to}"
+            return _ok(result_data)
 
-    # ── Intelligence tools (5) ────────────────────────────────
+        if action == "list":
+            ideas_list = await ideas_engine.list_ideas(
+                status=status,
+                category=category,
+                limit=limit,
+                offset=offset,
+            )
+            items = [
+                {
+                    "id": i.id,
+                    "title": i.title,
+                    "status": i.status,
+                    "category": i.category,
+                    "score": i.score,
+                }
+                for i in ideas_list
+            ]
+            return _ok({"count": len(items), "ideas": items})
+
+        return _err(f"Unknown action: {action}")
+
+    # ── kn_intel ──────────────────────────────────────────────
 
     @mcp.tool()
-    async def kn_learn(
-        content: Annotated[str, Field(description="What was learned/decided/discovered")],
-        type: Annotated[
-            str,
-            Field(description="decision|pattern|solution|workaround|gotcha"),
+    async def kn_intel(
+        action: Annotated[
+            Literal["learn", "recall", "crossref", "context", "related"],
+            Field(description="learn | recall | crossref | context | related"),
         ],
+        content: Annotated[
+            str | None,
+            Field(description="What was learned/decided/discovered (learn)"),
+        ] = None,
+        type: Annotated[
+            str | None,
+            Field(description="decision|pattern|solution|workaround|gotcha (learn)"),
+        ] = None,
         context: Annotated[
             str | None,
-            Field(description="Situation when this was learned"),
+            Field(description="Situation when this was learned (learn)"),
         ] = None,
         confidence: Annotated[
             str,
-            Field(description="high=permanent, medium=likely, low=exploratory"),
+            Field(
+                description="high = permanent node + experience, medium/low = decaying experience only (learn, default: high)"
+            ),
         ] = "high",
         tags: Annotated[
             list[str] | None,
-            Field(description="Tags for categorization"),
+            Field(description="Tags for categorization (learn)"),
         ] = None,
-    ) -> str:
-        """Store knowledge from conversation. Creates node (high) or experience (medium/low)."""
-        if not content or not content.strip():
-            return _json({"_v": "1.0", "error": "content is required"})
-
-        s = await _init()
-        try:
-            result = await s["intel"].learn(
-                content=content.strip(),
-                type=type,
-                context=context,
-                confidence=confidence,
-                tags=tags,
-            )
-        except ValueError as e:
-            return _json({"_v": "1.0", "error": str(e)})
-
-        return _json(result)
-
-    @mcp.tool()
-    async def kn_recall(
         topic: Annotated[
             str | None,
-            Field(description="Topic to recall knowledge about"),
+            Field(description="Topic to recall knowledge about (recall)"),
         ] = None,
-        limit: Annotated[
-            int,
-            Field(description="Max results", ge=1, le=50),
-        ] = 10,
-        min_relevance: Annotated[
-            float,
-            Field(
-                description="Minimum relevance 0.0-1.0",
-                ge=0.0,
-                le=1.0,
-            ),
-        ] = 0.0,
-    ) -> str:
-        """Surface relevant past knowledge for context."""
-        s = await _init()
-        results = await s["intel"].recall(
-            topic=topic,
-            limit=limit,
-            min_relevance=min_relevance,
-        )
-        return _json(
-            {
-                "_v": "1.0",
-                "count": len(results),
-                "results": results,
-            }
-        )
-
-    @mcp.tool()
-    async def kn_crossref(
-        problem: Annotated[str, Field(description="Problem description to find solutions for")],
-        limit: Annotated[
-            int,
-            Field(description="Max results", ge=1, le=50),
-        ] = 10,
-    ) -> str:
-        """Find similar solutions from other workspaces."""
-        if not problem or not problem.strip():
-            return _json({"_v": "1.0", "error": "problem is required"})
-
-        s = await _init()
-        try:
-            results = await s["intel"].crossref(
-                problem=problem.strip(),
-                limit=limit,
-            )
-        except ValueError as e:
-            return _json({"_v": "1.0", "error": str(e)})
-
-        return _json(
-            {
-                "_v": "1.0",
-                "count": len(results),
-                "results": results,
-            }
-        )
-
-    @mcp.tool()
-    async def kn_context(
-        keywords: Annotated[str, Field(description="Keywords to find relevant context for")],
+        problem: Annotated[
+            str | None,
+            Field(description="Problem description to find solutions for (crossref)"),
+        ] = None,
+        keywords: Annotated[
+            str | None,
+            Field(description="Keywords to find relevant context for (context)"),
+        ] = None,
         detail: Annotated[
             str,
-            Field(description="summary or full"),
+            Field(description="summary or full (context, default: summary)"),
         ] = "summary",
-        limit: Annotated[
-            int,
-            Field(description="Max results", ge=1, le=50),
-        ] = 10,
-    ) -> str:
-        """Keywords to relevant subgraph with progressive disclosure."""
-        s = await _init()
-        result = await s["intel"].context(
-            keywords=keywords,
-            detail=detail,
-            limit=limit,
-        )
-        return _json(result)
-
-    @mcp.tool()
-    async def kn_related(
-        node_id: Annotated[str, Field(description="Starting node ID")],
+        node_id: Annotated[
+            str | None,
+            Field(description="Starting node ID (related)"),
+        ] = None,
         depth: Annotated[
             int,
-            Field(description="Traversal depth", ge=1, le=5),
+            Field(description="Traversal depth 1-5 (related, default: 1)", ge=1, le=5),
         ] = 1,
         edge_type: Annotated[
             str | None,
-            Field(description="Filter by edge type"),
+            Field(description="Filter by edge type (related)"),
         ] = None,
+        limit: Annotated[
+            int,
+            Field(description="Max results 1-50 (recall, crossref, context, related)", ge=1, le=50),
+        ] = 10,
+        min_relevance: Annotated[
+            float,
+            Field(description="Minimum relevance 0.0-1.0 (recall)", ge=0.0, le=1.0),
+        ] = 0.0,
     ) -> str:
-        """Find nodes connected to a starting point."""
-        if not node_id or not node_id.strip():
-            return _json({"_v": "1.0", "error": "node_id is required"})
+        """The primary interface for storing and retrieving knowledge. Combines graph, experience memory, and routing to handle knowledge intelligently. Use as the default for learning or recalling — it routes by confidence and type automatically. Use kn_graph, kn_experience, or kn_idea only when you need direct control.
 
+Actions: learn (store from conversation), recall (surface past knowledge), crossref (find solutions across workspaces), context (keywords to subgraph), related (graph traversal from a node)."""  # noqa: E501
         s = await _init()
-        results = await s["intel"].related(
-            node_id=node_id.strip(),
-            depth=depth,
-            edge_type=edge_type,
-        )
-        return _json(
-            {
-                "_v": "1.0",
-                "count": len(results),
-                "results": results,
-            }
-        )
+        intel = s["intel"]
+
+        if action == "learn":
+            if not content or not content.strip():
+                return _err("content is required for learn")
+            if not type:
+                return _err("type is required for learn")
+            try:
+                result = await intel.learn(
+                    content=content.strip(),
+                    type=type,
+                    context=context,
+                    confidence=confidence,
+                    tags=tags,
+                )
+            except ValueError as e:
+                return _err(str(e))
+            return _json(result)
+
+        if action == "recall":
+            results = await intel.recall(
+                topic=topic,
+                limit=limit,
+                min_relevance=min_relevance,
+            )
+            return _ok({"count": len(results), "results": results})
+
+        if action == "crossref":
+            if not problem or not problem.strip():
+                return _err("problem is required for crossref")
+            try:
+                results = await intel.crossref(
+                    problem=problem.strip(),
+                    limit=limit,
+                )
+            except ValueError as e:
+                return _err(str(e))
+            return _ok({"count": len(results), "results": results})
+
+        if action == "context":
+            if not keywords:
+                keywords = ""
+            result = await intel.context(
+                keywords=keywords,
+                detail=detail,
+                limit=limit,
+            )
+            return _json(result)
+
+        if action == "related":
+            if not node_id or not node_id.strip():
+                return _err("node_id is required for related")
+            results = await intel.related(
+                node_id=node_id.strip(),
+                depth=depth,
+                edge_type=edge_type,
+            )
+            return _ok({"count": len(results), "results": results})
+
+        return _err(f"Unknown action: {action}")
 
     # ── Resources (3) ──────────────────────────────────────────
 
@@ -865,19 +758,16 @@ def create_server(db_path: str) -> FastMCP:
         stats = await s["graph"].stats()
         projects = await s["memory"].list_projects(active_only=True)
         active = projects[0] if projects else None
-        return _json(
-            {
-                "_v": "1.0",
-                "graph": stats,
-                "active_project": {
-                    "id": active.id,
-                    "name": active.name,
-                    "phase": active.phase,
-                }
-                if active
-                else None,
+        return _ok({
+            "graph": stats,
+            "active_project": {
+                "id": active.id,
+                "name": active.name,
+                "phase": active.phase,
             }
-        )
+            if active
+            else None,
+        })
 
     @mcp.resource("kn://projects")
     async def kn_resource_projects() -> str:
@@ -898,7 +788,7 @@ def create_server(db_path: str) -> FastMCP:
                     "recent_progress": [{"action": e.action, "type": e.type} for e in progress],
                 }
             )
-        return _json({"_v": "1.0", "count": len(items), "projects": items})
+        return _ok({"count": len(items), "projects": items})
 
     @mcp.resource("kn://memories")
     async def kn_resource_memories() -> str:
@@ -918,7 +808,7 @@ def create_server(db_path: str) -> FastMCP:
             }
             for e in experiences
         ]
-        return _json({"_v": "1.0", "count": len(items), "experiences": items})
+        return _ok({"count": len(items), "experiences": items})
 
     # ── Prompts (2) ──────────────────────────────────────────
 
@@ -928,11 +818,9 @@ def create_server(db_path: str) -> FastMCP:
         s = await _init()
         mem = s["memory"]
 
-        # Active project
         projects = await mem.list_projects(active_only=True)
         active = projects[0] if projects else None
 
-        # Recent progress
         progress_lines = []
         if active:
             entries = await mem.get_progress(active.id, limit=5)
@@ -940,11 +828,9 @@ def create_server(db_path: str) -> FastMCP:
                 prefix = "FAIL" if e.type == "failure" else "OK"
                 progress_lines.append(f"  [{prefix}] {e.action}")
 
-        # Top experiences
         experiences = await s["experience"].search(min_relevance=0.3, limit=5)
         memory_lines = [f"  [{e.type}] {e.content[:80]}" for e in experiences]
 
-        # Build context
         parts = ["# Kairn Session Context\n"]
 
         if active:
@@ -956,13 +842,12 @@ def create_server(db_path: str) -> FastMCP:
                 parts.append("\nRecent progress:")
                 parts.extend(progress_lines)
         else:
-            parts.append("No active project. Use kn_project to create one.")
+            parts.append("No active project. Use kn_project(action=\"create\") to create one.")
 
         if memory_lines:
             parts.append("\n## Key Memories")
             parts.extend(memory_lines)
 
-        # Ideas in progress
         ideas = await s["ideas"].list_ideas(status="implementing", limit=3)
         if ideas:
             parts.append("\n## Ideas in Progress")
@@ -985,7 +870,6 @@ def create_server(db_path: str) -> FastMCP:
         if active:
             parts.append(f"## Project: {active.name} ({active.phase})")
 
-            # All progress this session (recent entries)
             progress = await mem.get_progress(active.id, limit=10)
             successes = [e for e in progress if e.type == "progress"]
             failures = [e for e in progress if e.type == "failure"]
@@ -1006,14 +890,12 @@ def create_server(db_path: str) -> FastMCP:
                     if e.next_step:
                         parts.append(f"    Next: {e.next_step}")
 
-            # Suggest next step from most recent entry
             if progress and progress[0].next_step:
                 parts.append("\n## Suggested Next Step")
                 parts.append(f"{progress[0].next_step}")
         else:
             parts.append("No active project to review.")
 
-        # Experience stats
         all_exp = await s["experience"].search(limit=50)
         if all_exp:
             by_type: dict[str, int] = {}
