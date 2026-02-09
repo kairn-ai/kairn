@@ -99,9 +99,9 @@ def create_server(db_path: str) -> FastMCP:
             Field(description="Node type, e.g. concept, pattern (add)"),
         ] = None,
         namespace: Annotated[
-            str,
-            Field(description="Namespace (add, default: knowledge)"),
-        ] = "knowledge",
+            str | None,
+            Field(description="Namespace (add: defaults to 'knowledge'; query: filter by namespace)"),
+        ] = None,
         description: Annotated[
             str | None,
             Field(description="Node description (add)"),
@@ -164,7 +164,7 @@ Actions: add (create node), connect (create edge), query (search nodes), remove 
             node = await s["graph"].add_node(
                 name=name.strip(),
                 type=type.strip(),
-                namespace=namespace,
+                namespace=namespace or "knowledge",
                 description=description,
                 tags=tags,
             )
@@ -191,7 +191,7 @@ Actions: add (create node), connect (create edge), query (search nodes), remove 
         if action == "query":
             nodes = await s["graph"].query(
                 text=text,
-                namespace=namespace if namespace != "knowledge" else None,
+                namespace=namespace,
                 node_type=node_type,
                 tags=tags,
                 limit=limit,

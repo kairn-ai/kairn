@@ -1030,3 +1030,502 @@ async def test_prompt_review_with_progress(client: Client):
     assert "Added auth module" in text
     assert "DB migration failed" in text
     assert "Add tests" in text
+
+
+# ── kn_graph: missing validation paths ──────────────────────
+
+
+async def test_graph_add_whitespace_name(client: Client):
+    result = _data(await client.call_tool("kn_graph", {
+        "action": "add", "name": "   ", "type": "concept",
+    }))
+    assert "error" in result
+
+
+async def test_graph_connect_missing_source(client: Client):
+    n = _data(await client.call_tool("kn_graph", {"action": "add", "name": "T", "type": "concept"}))
+    result = _data(await client.call_tool("kn_graph", {
+        "action": "connect", "target_id": n["id"], "edge_type": "uses",
+    }))
+    assert "error" in result
+    assert "source_id" in result["error"]
+
+
+async def test_graph_connect_missing_target(client: Client):
+    n = _data(await client.call_tool("kn_graph", {"action": "add", "name": "S", "type": "concept"}))
+    result = _data(await client.call_tool("kn_graph", {
+        "action": "connect", "source_id": n["id"], "edge_type": "uses",
+    }))
+    assert "error" in result
+    assert "target_id" in result["error"]
+
+
+async def test_graph_connect_missing_edge_type(client: Client):
+    n1 = _data(await client.call_tool("kn_graph", {"action": "add", "name": "A", "type": "concept"}))
+    n2 = _data(await client.call_tool("kn_graph", {"action": "add", "name": "B", "type": "concept"}))
+    result = _data(await client.call_tool("kn_graph", {
+        "action": "connect", "source_id": n1["id"], "target_id": n2["id"],
+    }))
+    assert "error" in result
+    assert "edge_type" in result["error"]
+
+
+async def test_graph_connect_default_weight(client: Client):
+    n1 = _data(await client.call_tool("kn_graph", {"action": "add", "name": "X", "type": "concept"}))
+    n2 = _data(await client.call_tool("kn_graph", {"action": "add", "name": "Y", "type": "concept"}))
+    result = _data(await client.call_tool("kn_graph", {
+        "action": "connect", "source_id": n1["id"], "target_id": n2["id"], "edge_type": "uses",
+    }))
+    assert result["weight"] == 1.0
+
+
+async def test_graph_remove_no_params(client: Client):
+    result = _data(await client.call_tool("kn_graph", {"action": "remove"}))
+    assert "error" in result
+    assert "node_id" in result["error"]
+
+
+async def test_graph_remove_partial_edge_params(client: Client):
+    """Only source_id without target_id and edge_type should error."""
+    result = _data(await client.call_tool("kn_graph", {
+        "action": "remove", "source_id": "some-id",
+    }))
+    assert "error" in result
+
+
+# ── kn_graph: namespace bug fix validation ───────────────────
+
+
+async def test_graph_add_default_namespace(client: Client):
+    """Nodes should default to 'knowledge' namespace when none specified."""
+    result = _data(await client.call_tool("kn_graph", {
+        "action": "add", "name": "Defaulted", "type": "concept",
+    }))
+    assert result["namespace"] == "knowledge"
+
+
+async def test_graph_query_explicit_knowledge_namespace(client: Client):
+    """Explicitly querying namespace='knowledge' should filter, not return all."""
+    await client.call_tool("kn_graph", {
+        "action": "add", "name": "In Knowledge", "type": "concept",
+    })
+    await client.call_tool("kn_graph", {
+        "action": "add", "name": "In Ideas", "type": "concept", "namespace": "idea",
+    })
+
+    result = _data(await client.call_tool("kn_graph", {
+        "action": "query", "namespace": "knowledge",
+    }))
+    names = [n["name"] for n in result["nodes"]]
+    assert "In Knowledge" in names
+    assert "In Ideas" not in names
+
+
+async def test_graph_query_no_namespace_filter(client: Client):
+    """No namespace param should return nodes from all namespaces."""
+    await client.call_tool("kn_graph", {
+        "action": "add", "name": "Node A", "type": "concept",
+    })
+    await client.call_tool("kn_graph", {
+        "action": "add", "name": "Node B", "type": "concept", "namespace": "idea",
+    })
+
+    result = _data(await client.call_tool("kn_graph", {"action": "query"}))
+    assert result["count"] == 2
+
+
+async def test_graph_query_with_offset(client: Client):
+    for i in range(5):
+        await client.call_tool("kn_graph", {"action": "add", "name": f"Off {i}", "type": "concept"})
+
+    all_results = _data(await client.call_tool("kn_graph", {"action": "query", "limit": 50}))
+    offset_results = _data(await client.call_tool("kn_graph", {
+        "action": "query", "limit": 50, "offset": 3,
+    }))
+    assert offset_results["count"] == all_results["count"] - 3
+
+
+async def test_graph_query_combined_filters(client: Client):
+    """Text + type filters together should intersect."""
+    await client.call_tool("kn_graph", {
+        "action": "add", "name": "Python Pattern", "type": "pattern",
+    })
+    await client.call_tool("kn_graph", {
+        "action": "add", "name": "Python Concept", "type": "concept",
+    })
+
+    result = _data(await client.call_tool("kn_graph", {
+        "action": "query", "text": "Python", "node_type": "pattern",
+    }))
+    assert result["count"] == 1
+    assert result["nodes"][0]["name"] == "Python Pattern"
+
+
+# ── kn_project: missing validation paths ─────────────────────
+
+
+async def test_project_create_missing_name(client: Client):
+    result = _data(await client.call_tool("kn_project", {"action": "create"}))
+    assert "error" in result
+    assert "name" in result["error"]
+
+
+async def test_project_update_missing_project_id(client: Client):
+    result = _data(await client.call_tool("kn_project", {
+        "action": "update", "name": "No ID",
+    }))
+    assert "error" in result
+    assert "project_id" in result["error"]
+
+
+async def test_project_update_missing_name(client: Client):
+    p = _data(await client.call_tool("kn_project", {"action": "create", "name": "X"}))
+    result = _data(await client.call_tool("kn_project", {
+        "action": "update", "project_id": p["id"],
+    }))
+    assert "error" in result
+    assert "name" in result["error"]
+
+
+async def test_project_log_missing_project_id(client: Client):
+    result = _data(await client.call_tool("kn_project", {
+        "action": "log", "action_text": "Something",
+    }))
+    assert "error" in result
+    assert "project_id" in result["error"]
+
+
+async def test_project_update_with_metadata(client: Client):
+    """Update goals, stakeholders, success_metrics."""
+    p = _data(await client.call_tool("kn_project", {"action": "create", "name": "Meta"}))
+    updated = _data(await client.call_tool("kn_project", {
+        "action": "update",
+        "project_id": p["id"],
+        "name": "Meta",
+        "goals": ["Ship it"],
+        "stakeholders": ["Alice"],
+        "success_metrics": ["100% coverage"],
+    }))
+    assert updated["goals"] == ["Ship it"]
+
+
+# ── kn_experience: missing filter/validation paths ───────────
+
+
+async def test_experience_save_missing_type(client: Client):
+    result = _data(await client.call_tool("kn_experience", {
+        "action": "save", "content": "Something",
+    }))
+    assert "error" in result
+    assert "type" in result["error"]
+
+
+async def test_experience_save_with_context(client: Client):
+    result = _data(await client.call_tool("kn_experience", {
+        "action": "save",
+        "content": "Use connection pooling",
+        "type": "solution",
+        "context": "Database scaling issue",
+    }))
+    assert result["_v"] == "1.0"
+    assert "id" in result
+
+
+async def test_experience_search_by_text(client: Client):
+    await client.call_tool("kn_experience", {
+        "action": "save", "content": "Use Redis for caching", "type": "solution",
+    })
+    await client.call_tool("kn_experience", {
+        "action": "save", "content": "Postgres is reliable", "type": "pattern",
+    })
+
+    result = _data(await client.call_tool("kn_experience", {
+        "action": "search", "text": "Redis",
+    }))
+    assert result["count"] >= 1
+    assert any("Redis" in e["content"] for e in result["experiences"])
+
+
+async def test_experience_search_by_type(client: Client):
+    await client.call_tool("kn_experience", {
+        "action": "save", "content": "Workaround A", "type": "workaround",
+    })
+    await client.call_tool("kn_experience", {
+        "action": "save", "content": "Pattern B", "type": "pattern",
+    })
+
+    result = _data(await client.call_tool("kn_experience", {
+        "action": "search", "type": "workaround",
+    }))
+    assert result["count"] == 1
+    assert result["experiences"][0]["type"] == "workaround"
+
+
+async def test_experience_search_with_min_relevance(client: Client):
+    """Fresh experiences should have high relevance, so min_relevance=0.5 should include them."""
+    await client.call_tool("kn_experience", {
+        "action": "save", "content": "Very relevant", "type": "solution",
+    })
+
+    result = _data(await client.call_tool("kn_experience", {
+        "action": "search", "min_relevance": 0.5,
+    }))
+    assert result["count"] == 1
+
+    # min_relevance=0.9999 should still find a just-created experience (relevance ~1.0)
+    high_bar = _data(await client.call_tool("kn_experience", {
+        "action": "search", "min_relevance": 0.9999,
+    }))
+    assert high_bar["count"] == 1
+
+
+async def test_experience_prune_with_threshold(client: Client):
+    """Pruning with threshold=1.0 should remove everything (nothing has relevance >= 1.0 after creation)."""
+    await client.call_tool("kn_experience", {
+        "action": "save", "content": "Will be pruned", "type": "workaround",
+    })
+    # threshold=2.0 is above max relevance, so nothing gets pruned
+    result = _data(await client.call_tool("kn_experience", {
+        "action": "prune", "threshold": 0.001,
+    }))
+    # Fresh experience has relevance ~1.0, so nothing should be pruned at 0.001
+    assert result["pruned_count"] == 0
+
+
+# ── kn_idea: missing validation paths ────────────────────────
+
+
+async def test_idea_update_missing_idea_id(client: Client):
+    result = _data(await client.call_tool("kn_idea", {
+        "action": "update", "title": "No ID",
+    }))
+    assert "error" in result
+    assert "idea_id" in result["error"]
+
+
+async def test_idea_update_missing_title(client: Client):
+    idea = _data(await client.call_tool("kn_idea", {"action": "create", "title": "Has Title"}))
+    result = _data(await client.call_tool("kn_idea", {
+        "action": "update", "idea_id": idea["id"],
+    }))
+    assert "error" in result
+    assert "title" in result["error"]
+
+
+async def test_idea_update_with_link(client: Client):
+    """Linking an idea to a graph node during update."""
+    node = _data(await client.call_tool("kn_graph", {
+        "action": "add", "name": "Target Node", "type": "concept",
+    }))
+    idea = _data(await client.call_tool("kn_idea", {"action": "create", "title": "Link Later"}))
+
+    result = _data(await client.call_tool("kn_idea", {
+        "action": "update",
+        "idea_id": idea["id"],
+        "title": "Link Later",
+        "link_to": node["id"],
+    }))
+    assert result["linked_to"] == node["id"]
+
+
+async def test_idea_list_with_offset(client: Client):
+    for i in range(5):
+        await client.call_tool("kn_idea", {"action": "create", "title": f"Idea {i}"})
+
+    page1 = _data(await client.call_tool("kn_idea", {"action": "list", "limit": 3}))
+    page2 = _data(await client.call_tool("kn_idea", {"action": "list", "limit": 3, "offset": 3}))
+    assert page1["count"] == 3
+    assert page2["count"] == 2
+
+
+# ── kn_intel: missing validation/filter paths ────────────────
+
+
+async def test_intel_learn_missing_type(client: Client):
+    result = _data(await client.call_tool("kn_intel", {
+        "action": "learn", "content": "Something",
+    }))
+    assert "error" in result
+    assert "type" in result["error"]
+
+
+async def test_intel_learn_with_context_and_tags(client: Client):
+    result = _data(await client.call_tool("kn_intel", {
+        "action": "learn",
+        "content": "Always use HTTPS",
+        "type": "pattern",
+        "confidence": "high",
+        "context": "Security review",
+        "tags": ["security", "networking"],
+    }))
+    assert result["_v"] == "1.0"
+    assert result["stored_as"] == "node"
+
+
+async def test_intel_recall_with_limit(client: Client):
+    for i in range(5):
+        await client.call_tool("kn_intel", {
+            "action": "learn",
+            "content": f"Pattern {i} about databases",
+            "type": "pattern",
+            "confidence": "high",
+        })
+
+    result = _data(await client.call_tool("kn_intel", {
+        "action": "recall", "topic": "databases", "limit": 2,
+    }))
+    assert result["count"] <= 2
+
+
+async def test_intel_recall_with_min_relevance(client: Client):
+    await client.call_tool("kn_intel", {
+        "action": "learn",
+        "content": "Fresh knowledge",
+        "type": "solution",
+        "confidence": "high",
+    })
+
+    result = _data(await client.call_tool("kn_intel", {
+        "action": "recall", "min_relevance": 0.5,
+    }))
+    assert result["count"] >= 1
+
+
+async def test_intel_crossref_no_results(client: Client):
+    result = _data(await client.call_tool("kn_intel", {
+        "action": "crossref",
+        "problem": "completely unique problem xyz abc 123 never seen before",
+    }))
+    assert result["count"] == 0
+
+
+async def test_intel_related_with_depth(client: Client):
+    """Test traversal at depth > 1."""
+    n1 = _data(await client.call_tool("kn_graph", {"action": "add", "name": "Root", "type": "concept"}))
+    n2 = _data(await client.call_tool("kn_graph", {"action": "add", "name": "Child", "type": "concept"}))
+    n3 = _data(await client.call_tool("kn_graph", {"action": "add", "name": "Grandchild", "type": "concept"}))
+
+    await client.call_tool("kn_graph", {
+        "action": "connect", "source_id": n1["id"], "target_id": n2["id"], "edge_type": "parent_of",
+    })
+    await client.call_tool("kn_graph", {
+        "action": "connect", "source_id": n2["id"], "target_id": n3["id"], "edge_type": "parent_of",
+    })
+
+    depth1 = _data(await client.call_tool("kn_intel", {
+        "action": "related", "node_id": n1["id"], "depth": 1,
+    }))
+    depth2 = _data(await client.call_tool("kn_intel", {
+        "action": "related", "node_id": n1["id"], "depth": 2,
+    }))
+    assert depth2["count"] >= depth1["count"]
+
+
+async def test_intel_related_with_edge_type_filter(client: Client):
+    """Filtering by edge_type should only return matching edges."""
+    n1 = _data(await client.call_tool("kn_graph", {"action": "add", "name": "Hub", "type": "concept"}))
+    n2 = _data(await client.call_tool("kn_graph", {"action": "add", "name": "Dep", "type": "concept"}))
+    n3 = _data(await client.call_tool("kn_graph", {"action": "add", "name": "Rel", "type": "concept"}))
+
+    await client.call_tool("kn_graph", {
+        "action": "connect", "source_id": n1["id"], "target_id": n2["id"], "edge_type": "depends_on",
+    })
+    await client.call_tool("kn_graph", {
+        "action": "connect", "source_id": n1["id"], "target_id": n3["id"], "edge_type": "related_to",
+    })
+
+    filtered = _data(await client.call_tool("kn_intel", {
+        "action": "related", "node_id": n1["id"], "edge_type": "depends_on",
+    }))
+    # Should find at least n2 but not necessarily n3
+    assert filtered["count"] >= 1
+
+
+async def test_intel_context_with_limit(client: Client):
+    for i in range(5):
+        await client.call_tool("kn_intel", {
+            "action": "learn",
+            "content": f"Database optimization technique {i}",
+            "type": "solution",
+            "confidence": "high",
+        })
+
+    result = _data(await client.call_tool("kn_intel", {
+        "action": "context", "keywords": "database optimization", "limit": 2,
+    }))
+    assert result["_v"] == "1.0"
+
+
+# ── Cross-tool workflow tests ────────────────────────────────
+
+
+async def test_graph_add_then_intel_related(client: Client):
+    """Create nodes via graph, then use intel to traverse."""
+    n1 = _data(await client.call_tool("kn_graph", {"action": "add", "name": "API", "type": "concept"}))
+    n2 = _data(await client.call_tool("kn_graph", {"action": "add", "name": "Auth", "type": "concept"}))
+    await client.call_tool("kn_graph", {
+        "action": "connect", "source_id": n1["id"], "target_id": n2["id"], "edge_type": "requires",
+    })
+
+    related = _data(await client.call_tool("kn_intel", {
+        "action": "related", "node_id": n1["id"],
+    }))
+    assert related["count"] >= 1
+
+
+async def test_full_project_lifecycle(client: Client):
+    """Create → update → log → list → review."""
+    p = _data(await client.call_tool("kn_project", {"action": "create", "name": "Lifecycle"}))
+    await client.call_tool("kn_project", {
+        "action": "update", "project_id": p["id"], "name": "Lifecycle", "phase": "active",
+    })
+    await client.call_tool("kn_project", {"action": "list", "set_active": p["id"]})
+    await client.call_tool("kn_project", {
+        "action": "log", "project_id": p["id"], "action_text": "Step 1 done",
+        "result": "Success", "next_step": "Step 2",
+    })
+    await client.call_tool("kn_project", {
+        "action": "log", "project_id": p["id"], "action_text": "Step 2 failed",
+        "type": "failure", "result": "Timeout",
+    })
+
+    listing = _data(await client.call_tool("kn_project", {"action": "list", "active_only": True}))
+    assert listing["count"] == 1
+    assert listing["projects"][0]["phase"] == "active"
+
+    # Prompts should reflect the lifecycle
+    review = await client.get_prompt("kn_review")
+    text = review.messages[0].content.text
+    assert "Lifecycle" in text
+    assert "Step 1 done" in text
+    assert "Step 2 failed" in text
+
+
+async def test_idea_linked_to_graph_then_queried(client: Client):
+    """Create graph node, link idea, verify idea lists correctly."""
+    node = _data(await client.call_tool("kn_graph", {
+        "action": "add", "name": "Caching Layer", "type": "concept",
+    }))
+    idea = _data(await client.call_tool("kn_idea", {
+        "action": "create", "title": "Add Redis Cache", "link_to": node["id"],
+    }))
+    assert idea["linked_to"] == node["id"]
+
+    ideas = _data(await client.call_tool("kn_idea", {"action": "list"}))
+    assert ideas["count"] == 1
+    assert ideas["ideas"][0]["title"] == "Add Redis Cache"
+
+
+async def test_experience_save_then_intel_recall(client: Client):
+    """Save via kn_experience, recall via kn_intel."""
+    await client.call_tool("kn_experience", {
+        "action": "save",
+        "content": "Connection pooling prevents exhaustion",
+        "type": "solution",
+        "tags": ["database"],
+    })
+
+    result = _data(await client.call_tool("kn_intel", {
+        "action": "recall", "topic": "connection pooling",
+    }))
+    assert result["count"] >= 1
