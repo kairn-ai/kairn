@@ -28,8 +28,7 @@ def _json(data: dict[str, Any]) -> str:
 
 def _ok(data: dict[str, Any]) -> str:
     """Return a versioned JSON success response."""
-    data["_v"] = "1.0"
-    return _json(data)
+    return _json({**data, "_v": "1.0"})
 
 
 def _err(msg: str) -> str:
@@ -182,7 +181,8 @@ Actions: add (create node), connect (create edge), query (search nodes), remove 
                 return _err("edge_type is required for connect")
             try:
                 edge = await s["graph"].connect(
-                    source_id, target_id, edge_type, weight=weight,
+                    source_id.strip(), target_id.strip(), edge_type.strip(),
+                    weight=weight,
                 )
                 return _ok(edge.to_storage())
             except ValueError as e:
@@ -202,18 +202,22 @@ Actions: add (create node), connect (create edge), query (search nodes), remove 
 
         if action == "remove":
             if node_id and node_id.strip():
-                ok = await s["graph"].remove_node(node_id)
+                ok = await s["graph"].remove_node(node_id.strip())
                 if ok:
-                    return _ok({"removed": "node", "id": node_id})
+                    return _ok({"removed": "node", "id": node_id.strip()})
                 return _err(f"Node not found: {node_id}")
 
-            if source_id and target_id and edge_type:
-                ok = await s["graph"].disconnect(source_id, target_id, edge_type)
+            src = source_id.strip() if source_id else None
+            tgt = target_id.strip() if target_id else None
+            etype = edge_type.strip() if edge_type else None
+
+            if src and tgt and etype:
+                ok = await s["graph"].disconnect(src, tgt, etype)
                 if ok:
                     return _ok({
                         "removed": "edge",
-                        "source_id": source_id,
-                        "target_id": target_id,
+                        "source_id": src,
+                        "target_id": tgt,
                     })
                 return _err("Edge not found")
 
@@ -728,10 +732,10 @@ Actions: learn (store from conversation), recall (surface past knowledge), cross
             return _ok({"count": len(results), "results": results})
 
         if action == "context":
-            if not keywords:
-                keywords = ""
+            if not keywords or not keywords.strip():
+                return _err("keywords is required for context")
             result = await intel.context(
-                keywords=keywords,
+                keywords=keywords.strip(),
                 detail=detail,
                 limit=limit,
             )

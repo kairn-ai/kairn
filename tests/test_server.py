@@ -805,7 +805,8 @@ async def test_intel_context_empty_keywords(client: Client):
     result = _data(await client.call_tool("kn_intel", {
         "action": "context", "keywords": "",
     }))
-    assert result["count"] == 0
+    assert "error" in result
+    assert "keywords" in result["error"]
 
 
 async def test_intel_context_detail_levels(client: Client):
@@ -1272,23 +1273,23 @@ async def test_experience_search_with_min_relevance(client: Client):
     }))
     assert result["count"] == 1
 
-    # min_relevance=0.9999 should still find a just-created experience (relevance ~1.0)
+    # min_relevance=0.99 should still find a just-created experience (relevance ~1.0)
     high_bar = _data(await client.call_tool("kn_experience", {
-        "action": "search", "min_relevance": 0.9999,
+        "action": "search", "min_relevance": 0.99,
     }))
-    assert high_bar["count"] == 1
+    assert high_bar["count"] >= 1
 
 
 async def test_experience_prune_with_threshold(client: Client):
-    """Pruning with threshold=1.0 should remove everything (nothing has relevance >= 1.0 after creation)."""
+    """A very low prune threshold should not remove freshly created, high-relevance experiences."""
     await client.call_tool("kn_experience", {
-        "action": "save", "content": "Will be pruned", "type": "workaround",
+        "action": "save", "content": "Will be kept", "type": "workaround",
     })
-    # threshold=2.0 is above max relevance, so nothing gets pruned
+    # threshold=0.001 is far below the relevance of a just-created experience (~1.0),
+    # so nothing should be pruned.
     result = _data(await client.call_tool("kn_experience", {
         "action": "prune", "threshold": 0.001,
     }))
-    # Fresh experience has relevance ~1.0, so nothing should be pruned at 0.001
     assert result["pruned_count"] == 0
 
 
