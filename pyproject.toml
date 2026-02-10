@@ -45,7 +45,7 @@ kairn = "kairn.cli:main"
 
 [project.urls]
 Homepage = "https://github.com/kairn-ai/kairn"
-Documentation = "https://kairn.dev"
+Documentation = "https://github.com/kairn-ai/kairn#readme"
 Repository = "https://github.com/kairn-ai/kairn"
 
 [tool.hatch.build.targets.wheel]
