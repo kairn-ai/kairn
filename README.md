@@ -19,7 +19,7 @@ Kairn is different:
 - **Context Router + Progressive Disclosure** — Automatically loads relevant subgraphs based on keywords, starting with summaries and drilling into details only when needed. No other tool does this.
 - **Knowledge Graph with FTS5** — Not flat storage. Typed relationships (`depends-on`, `resolves`, `causes`) between nodes with full-text search across everything.
 - **Experience Decay + Auto-Promotion** — Experiences lose relevance over time (biological decay model). Frequently-accessed experiences auto-promote to permanent knowledge. Your AI naturally forgets what doesn't matter.
-- **18 MCP Tools** — Works with Claude Desktop, Cursor, VS Code, Windsurf, and any MCP client.
+- **5 MCP Tools** — Consolidated, domain-grouped tools that keep context windows lean. Works with Claude Desktop, Cursor, VS Code, Windsurf, and any MCP client.
 - **Team Workspaces with RBAC** — Per-workspace isolation with JWT auth and role-based access control.
 
 ## Quick Start
@@ -57,54 +57,66 @@ Add to `.cursor/mcp-servers.json`:
 }
 ```
 
-Restart your editor. Kairn's 18 tools appear in the MCP section.
+Restart your editor. Kairn's 5 tools appear in the MCP section.
 
-## 18 Tools (kn_ prefix)
+## 5 Tools (kn_ prefix)
 
-All tools follow MCP protocol with JSON responses.
+All tools follow MCP protocol with JSON responses. Each tool uses an `action` parameter to select the operation.
 
-### Graph (5)
+### `kn_graph` — Knowledge Graph
 
-| Tool | Description |
-|------|-------------|
-| `kn_add` | Add node to knowledge graph |
-| `kn_connect` | Create typed edge between nodes |
-| `kn_query` | Search by text, type, tags, namespace |
-| `kn_remove` | Soft-delete node or edge (undo-safe) |
-| `kn_status` | Graph stats, health, system overview |
+Direct operations on the knowledge graph: create, connect, search, and remove nodes and edges.
 
-### Project Memory (3)
+| Action | Description | Required Params |
+|--------|-------------|-----------------|
+| `add` | Create a node | name, type |
+| `connect` | Create a weighted edge | source_id, target_id, edge_type |
+| `query` | Search by text, type, tags, namespace | *(all optional)* |
+| `remove` | Soft-delete node or edge (reversible) | node_id *or* source_id + target_id + edge_type |
+| `status` | Graph stats and health | *(none)* |
 
-| Tool | Description |
-|------|-------------|
-| `kn_project` | Create or update project |
-| `kn_projects` | List projects, switch active |
-| `kn_log` | Log progress or failure entry |
+### `kn_project` — Project Memory
 
-### Experience Memory (3)
+Manage projects and log session activity.
 
-| Tool | Description |
-|------|-------------|
-| `kn_save` | Save experience with decay |
-| `kn_memories` | Decay-aware experience search |
-| `kn_prune` | Remove expired experiences |
+| Action | Description | Required Params |
+|--------|-------------|-----------------|
+| `create` | New project (starts in "planning") | name |
+| `update` | Modify existing project | project_id, name |
+| `list` | List projects, switch active | *(optional: active_only, set_active)* |
+| `log` | Record progress or failure entry | project_id, action_text |
 
-### Ideas (2)
+### `kn_experience` — Experience Memory
 
-| Tool | Description |
-|------|-------------|
-| `kn_idea` | Create or update idea |
-| `kn_ideas` | List/filter ideas by status, category |
+Store and retrieve experiential memories with time-based decay.
 
-### Intelligence (5)
+| Action | Description | Required Params |
+|--------|-------------|-----------------|
+| `save` | Store an experience | content, type |
+| `search` | Find past experiences by relevance | *(all optional)* |
+| `prune` | Remove decayed experiences | *(optional: threshold)* |
 
-| Tool | Description |
-|------|-------------|
-| `kn_learn` | Store knowledge with confidence routing |
-| `kn_recall` | Surface relevant past knowledge |
-| `kn_crossref` | Find similar solutions across workspaces |
-| `kn_context` | Keywords → relevant subgraph with progressive disclosure |
-| `kn_related` | Graph traversal (BFS/DFS) to find connected ideas |
+### `kn_idea` — Idea Tracking
+
+Capture and track ideas through a lifecycle: draft → evaluating → approved → implementing → done → archived.
+
+| Action | Description | Required Params |
+|--------|-------------|-----------------|
+| `create` | New idea (starts as "draft") | title |
+| `update` | Modify existing idea | idea_id, title |
+| `list` | List and filter ideas | *(optional: status, category)* |
+
+### `kn_intel` — Intelligence Layer *(default entry point)*
+
+The primary interface for storing and retrieving knowledge. Routes automatically by confidence and type. **Use this as the default** — drop to lower-level tools only when you need direct control.
+
+| Action | Description | Required Params |
+|--------|-------------|-----------------|
+| `learn` | Store knowledge (high confidence → permanent node + experience; medium/low → decaying experience only) | content, type |
+| `recall` | Surface relevant past knowledge | *(optional: topic)* |
+| `crossref` | Find similar solutions across workspaces | problem |
+| `context` | Keywords → relevant subgraph | keywords |
+| `related` | Graph traversal from a node | node_id |
 
 ## Resources & Prompts
 
@@ -125,7 +137,7 @@ All tools follow MCP protocol with JSON responses.
 Any MCP Client (Claude, Cursor, VS Code)
         │
         ▼ MCP Protocol (stdio)
-FastMCP Server (18 tools)
+FastMCP Server (5 tools)
         │
    ┌────┼────┐
    ▼    ▼    ▼
@@ -154,7 +166,7 @@ relevance(t) = initial_score × e^(-decay_rate × days)
 | workaround | 50 days | Temporary fixes fade fast |
 | gotcha | 200 days | Tricky pitfalls stay relevant |
 
-**Confidence routing** via `kn_learn`:
+**Confidence routing** via `kn_intel(action="learn")`:
 - `high` → Permanent node + experience (no decay)
 - `medium` → Experience with 2× decay
 - `low` → Experience with 4× decay
@@ -194,15 +206,15 @@ ruff check src/ && ruff format src/
 
 ```
 src/kairn/
-├── server.py              # FastMCP server + 18 tools
+├── server.py              # FastMCP server + 5 consolidated tools
 ├── cli.py                 # CLI commands
 ├── config.py              # Configuration
 ├── core/
-│   ├── graph.py           # GraphEngine (5 tools)
-│   ├── memory.py          # ProjectMemory (3 tools)
-│   ├── experience.py      # ExperienceEngine (3 tools)
-│   ├── ideas.py           # IdeaEngine (2 tools)
-│   ├── intelligence.py    # IntelligenceLayer (5 tools)
+│   ├── graph.py           # GraphEngine
+│   ├── memory.py          # ProjectMemory
+│   ├── experience.py      # ExperienceEngine
+│   ├── ideas.py           # IdeaEngine
+│   ├── intelligence.py    # IntelligenceLayer
 │   └── router.py          # ContextRouter
 ├── storage/
 │   ├── base.py            # Storage interface
@@ -218,11 +230,11 @@ Typical operation times on modern hardware:
 
 | Operation | Time |
 |-----------|------|
-| `kn_add` | 2-5ms |
-| `kn_query` (100 nodes) | 5-15ms |
-| `kn_connect` | 1-3ms |
-| `kn_recall` (graph traversal) | 10-50ms |
-| `kn_crossref` (cross-workspace) | 20-100ms |
+| `kn_graph(action="add")` | 2-5ms |
+| `kn_graph(action="query")` (100 nodes) | 5-15ms |
+| `kn_graph(action="connect")` | 1-3ms |
+| `kn_intel(action="recall")` (graph traversal) | 10-50ms |
+| `kn_intel(action="crossref")` (cross-workspace) | 20-100ms |
 
 ## License
 
