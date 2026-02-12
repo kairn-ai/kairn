@@ -1530,3 +1530,64 @@ async def test_experience_save_then_intel_recall(client: Client):
         "action": "recall", "topic": "connection pooling",
     }))
     assert result["count"] >= 1
+
+
+# ── Unknown/Invalid Action Tests ──────────────────────────────
+# Note: These tests verify that Pydantic validation catches invalid action values
+# at the parameter validation level (before the function is called).
+
+
+async def test_graph_unknown_action(client: Client):
+    """kn_graph should reject unknown action at validation level."""
+    with pytest.raises(Exception) as exc_info:
+        await client.call_tool("kn_graph", {
+            "action": "invalid_action",
+        })
+    # Verify it's a validation error about the action parameter
+    error_msg = str(exc_info.value)
+    assert "action" in error_msg.lower()
+    assert "literal" in error_msg.lower() or "invalid" in error_msg.lower()
+
+
+async def test_project_unknown_action(client: Client):
+    """kn_project should reject unknown action at validation level."""
+    with pytest.raises(Exception) as exc_info:
+        await client.call_tool("kn_project", {
+            "action": "invalid_action",
+        })
+    error_msg = str(exc_info.value)
+    assert "action" in error_msg.lower()
+    assert "literal" in error_msg.lower() or "invalid" in error_msg.lower()
+
+
+async def test_experience_unknown_action(client: Client):
+    """kn_experience should reject unknown action at validation level."""
+    with pytest.raises(Exception) as exc_info:
+        await client.call_tool("kn_experience", {
+            "action": "invalid_action",
+        })
+    error_msg = str(exc_info.value)
+    assert "action" in error_msg.lower()
+    assert "literal" in error_msg.lower() or "invalid" in error_msg.lower()
+
+
+async def test_idea_unknown_action(client: Client):
+    """kn_idea should reject unknown action at validation level."""
+    with pytest.raises(Exception) as exc_info:
+        await client.call_tool("kn_idea", {
+            "action": "invalid_action",
+        })
+    error_msg = str(exc_info.value)
+    assert "action" in error_msg.lower()
+    assert "literal" in error_msg.lower() or "invalid" in error_msg.lower()
+
+
+async def test_intel_unknown_action(client: Client):
+    """kn_intel should reject unknown action at validation level."""
+    with pytest.raises(Exception) as exc_info:
+        await client.call_tool("kn_intel", {
+            "action": "invalid_action",
+        })
+    error_msg = str(exc_info.value)
+    assert "action" in error_msg.lower()
+    assert "literal" in error_msg.lower() or "invalid" in error_msg.lower()

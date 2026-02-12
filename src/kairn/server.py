@@ -709,7 +709,14 @@ Actions: learn (store from conversation), recall (surface past knowledge), cross
                 )
             except ValueError as e:
                 return _err(str(e))
-            return _json(result)
+            # Extract fields from result (which already has _v) and pass to _ok
+            return _ok({
+                "stored_as": result["stored_as"],
+                "node_id": result["node_id"],
+                "experience_id": result["experience_id"],
+                "type": result["type"],
+                "confidence": result["confidence"],
+            })
 
         if action == "recall":
             results = await intel.recall(
@@ -739,7 +746,14 @@ Actions: learn (store from conversation), recall (surface past knowledge), cross
                 detail=detail,
                 limit=limit,
             )
-            return _json(result)
+            # Extract fields from result (which already has _v) and pass to _ok
+            return _ok({
+                "query": result["query"],
+                "detail": result["detail"],
+                "count": result["count"],
+                "nodes": result["nodes"],
+                "experiences": result["experiences"],
+            })
 
         if action == "related":
             if not node_id or not node_id.strip():
